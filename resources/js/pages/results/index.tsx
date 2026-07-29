@@ -37,17 +37,17 @@ export default function Results({
 
     const find = (event: FormEvent) => {
         event.preventDefault();
-        router.get('/results', { date: search.data.date }, { preserveState: false });
+        router.get(route('results.index'), { date: search.data.date }, { preserveState: false });
     };
     const save = (event: FormEvent) => {
         event.preventDefault();
         if (wallpaper) {
-            result.put(`/wallpapers/${wallpaper.id}/result`);
+            result.put(route('wallpapers.result.update', { wallpaper: wallpaper.id }));
         }
     };
 
     return (
-        <AppLayout breadcrumbs={[{ title: '実績登録', href: '/results' }]}>
+        <AppLayout breadcrumbs={[{ title: '実績登録', href: route('results.index') }]}>
             <Head title="実績登録" />
             <div className="max-w-4xl space-y-6 p-4">
                 <Card>

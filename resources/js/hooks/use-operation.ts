@@ -33,7 +33,7 @@ export function useOperation(initial?: Operation | null) {
         }
 
         const timer = window.setInterval(async () => {
-            const response = await fetch(`/operations/${operationId}`, {
+            const response = await fetch(route('operations.show', { id: operationId }), {
                 credentials: 'same-origin',
                 headers: { Accept: 'application/json' },
             });

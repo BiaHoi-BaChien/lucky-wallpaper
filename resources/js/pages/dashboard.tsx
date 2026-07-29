@@ -21,7 +21,7 @@ export default function Dashboard({ stats, latestSync }: Props) {
     const active = operation && ['queued', 'running'].includes(operation.status);
 
     return (
-        <AppLayout breadcrumbs={[{ title: 'ダッシュボード・同期', href: '/dashboard' }]}>
+        <AppLayout breadcrumbs={[{ title: 'ダッシュボード・同期', href: route('dashboard') }]}>
             <Head title="ダッシュボード" />
             <div className="space-y-6 p-4">
                 <div className="grid gap-4 md:grid-cols-3">
@@ -36,7 +36,7 @@ export default function Dashboard({ stats, latestSync }: Props) {
                         <CardDescription>初回は全件、2回目以降は前回成功時刻から1分重複させた差分をDBキューへ登録します。</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        <Button disabled={Boolean(active)} onClick={() => router.post('/notion-syncs')}>
+                        <Button disabled={Boolean(active)} onClick={() => router.post(route('notion-syncs.store'))}>
                             {active && <LoaderCircle className="size-4 animate-spin" />}
                             {active ? '取り込み中' : '実績情報取り込み'}
                         </Button>

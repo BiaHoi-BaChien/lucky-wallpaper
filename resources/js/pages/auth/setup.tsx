@@ -18,7 +18,7 @@ export default function Setup() {
 
     const submit: FormEventHandler = (event) => {
         event.preventDefault();
-        form.post('/setup', { onFinish: () => form.reset('password', 'password_confirmation') });
+        form.post(route('setup.store'), { onFinish: () => form.reset('password', 'password_confirmation') });
     };
 
     return (

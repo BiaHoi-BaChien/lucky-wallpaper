@@ -17,6 +17,10 @@ interface Passkey {
 export default function Passkeys({ passkeys }: { passkeys: Passkey[] }) {
     const [name, setName] = useState('');
     const registration = usePasskeyRegister({
+        routes: {
+            options: route('passkey.registration-options'),
+            submit: route('passkey.store'),
+        },
         onSuccess: () => {
             setName('');
             router.reload();
@@ -29,14 +33,14 @@ export default function Passkeys({ passkeys }: { passkeys: Passkey[] }) {
     };
 
     return (
-        <AppLayout breadcrumbs={[{ title: 'パスキー設定', href: '/settings/passkeys' }]}>
+        <AppLayout breadcrumbs={[{ title: 'パスキー設定', href: route('passkeys.index') }]}>
             <Head title="パスキー設定" />
             <SettingsLayout>
                 <div className="space-y-6">
                     <HeadingSmall title="パスキー" description="HTTPSかつ本番ドメインと一致する環境で登録してください。" />
                     <p className="text-muted-foreground text-sm">
                         登録・削除前に現在のパスワード確認が必要です。未確認の場合は
-                        <Link href="/confirm-password" className="ml-1 underline">
+                        <Link href={route('password.confirm')} className="ml-1 underline">
                             パスワード確認画面
                         </Link>
                         を開いてください。
@@ -56,7 +60,11 @@ export default function Passkeys({ passkeys }: { passkeys: Passkey[] }) {
                                     <p className="font-medium">{passkey.name}</p>
                                     <p className="text-muted-foreground text-xs">最終利用: {passkey.last_used_at ?? '未使用'}</p>
                                 </div>
-                                <Button variant="destructive" size="sm" onClick={() => router.delete(`/user/passkeys/${passkey.id}`)}>
+                                <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => router.delete(route('passkey.destroy', { passkey: passkey.id }))}
+                                >
                                     削除
                                 </Button>
                             </div>
