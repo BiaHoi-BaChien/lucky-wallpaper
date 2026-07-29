@@ -41,6 +41,9 @@ DirectoryIndex index.php
     RewriteRule ^(?:app|bootstrap|config|database|deploy|docs|lang|node_modules|public|resources|routes|storage|tests|vendor)(?:/|$) - [F,L,NC]
     RewriteRule ^(?!index\.php$).*\.php$ - [F,L,NC]
 
+    # Route the deployment root before the existing-directory checks below.
+    RewriteRule ^$ index.php [L]
+
     # Redirect trailing slashes unless the request points to a directory.
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_URI} (.+)/$
