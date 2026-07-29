@@ -6,9 +6,9 @@ Document Root兼Laravel配置先:
 /home/u685478147/public_html/public_html/lucky_wallpaper
 ```
 
-Hostingerの仕様に合わせ、Laravel本体、`.env`、`public/`をすべてこのディレクトリ配下へ配置します。ルートの`.htaccess`が非公開ファイルとディレクトリへの直接アクセスを拒否し、通常のリクエストだけを内部的に`public/`へ転送します。
+Hostingerの仕様に合わせ、Laravel本体と`.env`をこのディレクトリ配下へ配置し、リポジトリの`public/`の内容だけを同じディレクトリの直下へ展開します。`public/`ディレクトリ自体をWeb公開時のサブディレクトリとして残しません。
 
-Document Rootを`public/`サブディレクトリへ変更する必要はありません。
+配置先直下の`index.php`がLaravelを起動し、`.htaccess`がアプリケーションディレクトリ、設定、依存関係、ログへの直接アクセスを拒否します。
 
 ## 事前確認
 
@@ -34,6 +34,14 @@ php artisan route:cache
 php artisan view:cache
 ```
 
+ローカルでHostinger用の配置構造を確認する場合は、ビルド後にリポジトリ外の一時ディレクトリを指定します。
+
+```bash
+bash deploy/prepare-hostinger-artifact.sh /tmp/lucky-wallpaper-deploy
+```
+
+生成物では、`public/build`は`build`として配置先直下に展開され、Hostinger用の`index.php`とルート`.htaccess`が使用されます。
+
 本番のマイグレーションはバックアップとメンテナンス手順を確認したうえで、別途承認後に実施します。
 
 ```bash
@@ -47,9 +55,11 @@ php artisan migrate --force
 `.github/workflows/deploy.yml`は、`main`へのpushを対象とした`tests`ワークフローが成功した場合だけHostingerへデプロイします。
 
 - GitHub Actions上で本番用Composer依存関係とViteアセットをビルド
+- `public/`の内容を配置先直下へ展開したHostinger用成果物を生成
 - SSHのホスト鍵を検証
 - rsyncでDocument Root兼Laravel配置先へ差分転送
-- ルート`.htaccess`で`.env`、ソース、依存関係、DB、ログへの直接アクセスを拒否
+- 直下の`index.php`だけをフロントコントローラーとして許可
+- ルート`.htaccess`で`.env`、ソース、依存関係、DB、ログ、旧`public/`への直接アクセスを拒否
 - 本番の`.env`、`storage/`、生成済みキャッシュを転送・削除対象から除外
 - Laravelの設定、ルート、ビューキャッシュを再生成
 - 失敗時も可能な範囲でメンテナンスモードを解除
@@ -87,14 +97,14 @@ ssh-keyscan -p 65002 HOSTINGER_SSH_HOST
 
 ### 公開アクセス確認
 
-初回反映後は、通常ページが表示でき、非公開ファイルが`403`になることを確認します。いずれかが`200`になった場合は公開を停止し、`.htaccess`の有効性を確認してください。
+初回反映後は、通常ページが表示でき、非公開ファイルと旧`public/`パスが`403`になることを確認します。いずれかが`200`になった場合は公開を停止し、`.htaccess`の有効性を確認してください。
 
 ```bash
-base_url="https://実際のドメイン"
+base_url="https://clb-biahoi.net/lucky_wallpaper"
 
 curl -sS -o /dev/null -w "root: %{http_code}\n" "$base_url/"
 
-for protected_path in .env composer.json vendor/autoload.php storage/logs/laravel.log; do
+for protected_path in .env composer.json public/index.php vendor/autoload.php storage/logs/laravel.log; do
   curl -sS -o /dev/null -w "$protected_path: %{http_code}\n" \
     "$base_url/$protected_path"
 done
