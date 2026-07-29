@@ -27,11 +27,11 @@ export default function CreateWallpaper({
 
     const submit = (event: FormEvent) => {
         event.preventDefault();
-        form.post('/wallpapers/proposals');
+        form.post(route('wallpapers.proposals.store'));
     };
 
     return (
-        <AppLayout breadcrumbs={[{ title: '壁紙作成', href: '/wallpapers/create' }]}>
+        <AppLayout breadcrumbs={[{ title: '壁紙作成', href: route('wallpapers.create') }]}>
             <Head title="壁紙作成" />
             <div className="max-w-3xl p-4">
                 <Card>
@@ -49,7 +49,7 @@ export default function CreateWallpaper({
                                     value={form.data.target_date}
                                     onChange={(e) => {
                                         form.setData('target_date', e.target.value);
-                                        router.get('/wallpapers/create', { date: e.target.value }, { preserveState: true, replace: true });
+                                        router.get(route('wallpapers.create'), { date: e.target.value }, { preserveState: true, replace: true });
                                     }}
                                 />
                             </div>
@@ -62,7 +62,7 @@ export default function CreateWallpaper({
                                     {existing.title ?? '構図生成待ち'}（{existing.state}）
                                 </p>
                                 <Button asChild className="mt-3">
-                                    <Link href={`/wallpapers/${existing.id}`}>詳細を表示</Link>
+                                    <Link href={route('wallpapers.show', { wallpaper: existing.id })}>詳細を表示</Link>
                                 </Button>
                             </div>
                         ) : (

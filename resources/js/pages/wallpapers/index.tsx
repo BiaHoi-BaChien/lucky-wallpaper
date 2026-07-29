@@ -18,7 +18,7 @@ export default function WallpaperIndex({
     wallpapers: { data: Wallpaper[]; links: { url: string | null; label: string; active: boolean }[] };
 }) {
     return (
-        <AppLayout breadcrumbs={[{ title: '壁紙履歴・ダウンロード', href: '/wallpapers' }]}>
+        <AppLayout breadcrumbs={[{ title: '壁紙履歴・ダウンロード', href: route('wallpapers.index') }]}>
             <Head title="壁紙履歴" />
             <div className="p-4">
                 <Card>
@@ -50,7 +50,7 @@ export default function WallpaperIndex({
                                             <td className="p-3">{wallpaper.state}</td>
                                             <td className="p-3">
                                                 <Button size="sm" variant="outline" asChild>
-                                                    <Link href={`/wallpapers/${wallpaper.id}`}>詳細</Link>
+                                                    <Link href={route('wallpapers.show', { wallpaper: wallpaper.id })}>詳細</Link>
                                                 </Button>
                                             </td>
                                         </tr>

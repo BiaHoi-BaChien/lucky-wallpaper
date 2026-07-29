@@ -10,27 +10,27 @@ import AppLogo from './app-logo';
 const mainNavItems: NavItem[] = [
     {
         title: 'ダッシュボード・同期',
-        url: '/dashboard',
+        url: route('dashboard'),
         icon: LayoutGrid,
     },
     {
         title: '壁紙作成',
-        url: '/wallpapers/create',
+        url: route('wallpapers.create'),
         icon: Sparkles,
     },
     {
         title: '壁紙履歴・ダウンロード',
-        url: '/wallpapers',
+        url: route('wallpapers.index'),
         icon: Download,
     },
     {
         title: '実績登録',
-        url: '/results',
+        url: route('results.index'),
         icon: ChartNoAxesCombined,
     },
     {
         title: 'アカウント・パスキー',
-        url: '/settings/passkeys',
+        url: route('passkeys.index'),
         icon: Settings,
     },
 ];
@@ -44,7 +44,7 @@ export function AppSidebar() {
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton size="lg" asChild>
-                            <Link href="/dashboard" prefetch>
+                            <Link href={route('dashboard')} prefetch>
                                 <AppLogo />
                             </Link>
                         </SidebarMenuButton>

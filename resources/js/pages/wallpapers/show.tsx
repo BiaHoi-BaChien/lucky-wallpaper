@@ -41,8 +41,8 @@ export default function ShowWallpaper({ wallpaper, latestApiRun }: { wallpaper: 
     return (
         <AppLayout
             breadcrumbs={[
-                { title: '壁紙履歴', href: '/wallpapers' },
-                { title: wallpaper.target_date, href: `/wallpapers/${wallpaper.id}` },
+                { title: '壁紙履歴', href: route('wallpapers.index') },
+                { title: wallpaper.target_date, href: route('wallpapers.show', { wallpaper: wallpaper.id }) },
             ]}
         >
             <Head title={`${wallpaper.target_date} 壁紙`} />
@@ -78,14 +78,16 @@ export default function ShowWallpaper({ wallpaper, latestApiRun }: { wallpaper: 
                                     <>
                                         <Button
                                             disabled={Boolean(active)}
-                                            onClick={() => router.post(`/wallpapers/${wallpaper.id}/image`, { proposal_id: current.id })}
+                                            onClick={() =>
+                                                router.post(route('wallpapers.image', { wallpaper: wallpaper.id }), { proposal_id: current.id })
+                                            }
                                         >
                                             この構図で画像を作成
                                         </Button>
                                         <Button
                                             variant="outline"
                                             disabled={Boolean(active)}
-                                            onClick={() => router.post(`/wallpapers/${wallpaper.id}/repropose`)}
+                                            onClick={() => router.post(route('wallpapers.repropose', { wallpaper: wallpaper.id }))}
                                         >
                                             再提案
                                         </Button>
@@ -94,21 +96,25 @@ export default function ShowWallpaper({ wallpaper, latestApiRun }: { wallpaper: 
                                 {current.status === 'approved' && wallpaper.state !== 'generated' && (
                                     <Button
                                         disabled={Boolean(active)}
-                                        onClick={() => router.post(`/wallpapers/${wallpaper.id}/image`, { proposal_id: current.id })}
+                                        onClick={() =>
+                                            router.post(route('wallpapers.image', { wallpaper: wallpaper.id }), { proposal_id: current.id })
+                                        }
                                     >
                                         画像生成を再試行
                                     </Button>
                                 )}
                                 {['generated', 'archived', 'result_synced'].includes(wallpaper.state) && (
                                     <Button variant="outline" asChild>
-                                        <a href={`/wallpapers/${wallpaper.id}/download`}>画像をダウンロード</a>
+                                        <a href={route('wallpapers.download', { wallpaper: wallpaper.id })}>画像をダウンロード</a>
                                     </Button>
                                 )}
                             </div>
                         </CardContent>
                     </Card>
                 )}
-                {!current && !active && <Button onClick={() => router.post(`/wallpapers/${wallpaper.id}/repropose`)}>構図提案を再試行</Button>}
+                {!current && !active && (
+                    <Button onClick={() => router.post(route('wallpapers.repropose', { wallpaper: wallpaper.id }))}>構図提案を再試行</Button>
+                )}
                 {wallpaper.warnings && wallpaper.warnings.length > 0 && (
                     <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm">
                         {wallpaper.warnings.map((warning) => (

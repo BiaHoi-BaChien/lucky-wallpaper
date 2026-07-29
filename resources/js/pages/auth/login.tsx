@@ -22,8 +22,12 @@ export default function Login({ status }: LoginProps) {
     });
     const passkey = usePasskeyVerify({
         autofill: true,
+        routes: {
+            options: route('passkey.login-options'),
+            submit: route('passkey.login'),
+        },
         onSuccess: (response) => {
-            window.location.href = response.redirect || '/dashboard';
+            window.location.href = response.redirect || route('dashboard');
         },
     });
 

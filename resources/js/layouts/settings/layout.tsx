@@ -8,17 +8,17 @@ import { Link } from '@inertiajs/react';
 const sidebarNavItems: NavItem[] = [
     {
         title: 'パスワード',
-        url: '/settings/password',
+        url: route('password.edit'),
         icon: null,
     },
     {
         title: 'パスキー',
-        url: '/settings/passkeys',
+        url: route('passkeys.index'),
         icon: null,
     },
     {
         title: '表示',
-        url: '/settings/appearance',
+        url: route('appearance'),
         icon: null,
     },
 ];
@@ -40,7 +40,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
                                 variant="ghost"
                                 asChild
                                 className={cn('w-full justify-start', {
-                                    'bg-muted': currentPath === item.url,
+                                    'bg-muted': currentPath === new URL(item.url).pathname,
                                 })}
                             >
                                 <Link href={item.url} prefetch>
