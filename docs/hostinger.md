@@ -1,5 +1,15 @@
 # Hostinger共有環境への配置
 
+Document Root兼Laravel配置先:
+
+```text
+/home/u685478147/public_html/public_html/lucky_wallpaper
+```
+
+Hostingerの仕様に合わせ、Laravel本体、`.env`、`public/`をすべてこのディレクトリ配下へ配置します。ルートの`.htaccess`が非公開ファイルとディレクトリへの直接アクセスを拒否し、通常のリクエストだけを内部的に`public/`へ転送します。
+
+Document Rootを`public/`サブディレクトリへ変更する必要はありません。
+
 ## 事前確認
 
 - PHP 8.2以上
@@ -7,7 +17,7 @@
 - HTTPS
 - PHP拡張: `curl`, `gd`, `mbstring`, `openssl`, `pdo_mysql`
 - SSHとhPanel cron
-- WebルートをLaravelの`public/`へ向けられること
+- ApacheまたはLiteSpeedで`.htaccess`と`mod_rewrite`が利用できること
 
 パスキーのRP IDは`APP_URL`のホスト名から生成されます。本番HTTPS URLと完全一致させ、`PASSKEYS_USER_HANDLE_SECRET`は運用開始後に変更しないでください。
 
@@ -32,12 +42,70 @@ php artisan migrate --force
 
 `storage/`と`bootstrap/cache/`はPHP実行ユーザーが書き込める必要があります。生成画像は`storage/app/private/wallpapers`に保存され、認証済みコントローラー経由でのみ配信されます。
 
+## GitHub Actionsによる自動デプロイ
+
+`.github/workflows/deploy.yml`は、`main`へのpushを対象とした`tests`ワークフローが成功した場合だけHostingerへデプロイします。
+
+- GitHub Actions上で本番用Composer依存関係とViteアセットをビルド
+- SSHのホスト鍵を検証
+- rsyncでDocument Root兼Laravel配置先へ差分転送
+- ルート`.htaccess`で`.env`、ソース、依存関係、DB、ログへの直接アクセスを拒否
+- 本番の`.env`、`storage/`、生成済みキャッシュを転送・削除対象から除外
+- Laravelの設定、ルート、ビューキャッシュを再生成
+- 失敗時も可能な範囲でメンテナンスモードを解除
+- より新しい`main`が存在する場合は古いコミットのデプロイをスキップ
+
+DBマイグレーションは自動実行しません。スキーマ変更がある場合は、バックアップ取得後に別途承認して実行します。
+
+### GitHub Secrets
+
+GitHubリポジトリの `Settings → Secrets and variables → Actions` に次のRepository secretsを登録します。
+
+| Secret                      | 内容                                                   |
+| --------------------------- | ------------------------------------------------------ |
+| `HOSTINGER_SSH_HOST`        | hPanelのSSH Accessに表示されるホスト名またはIPアドレス |
+| `HOSTINGER_SSH_PORT`        | hPanelのSSHポート。共有環境の既定値は`65002`           |
+| `HOSTINGER_SSH_USER`        | `u685478147`                                           |
+| `HOSTINGER_SSH_PRIVATE_KEY` | GitHub Actions専用SSH秘密鍵の全文                      |
+| `HOSTINGER_SSH_KNOWN_HOSTS` | 接続先とポートに対応する検証済みknown_hosts行          |
+
+デプロイ専用鍵は、普段使用する個人鍵と分けて作成します。GitHub Actionsでは対話入力できないため、この専用鍵にはパスフレーズを設定しません。
+
+```bash
+ssh-keygen -t ed25519 \
+  -C "github-actions-lucky-wallpaper" \
+  -f ~/.ssh/lucky-wallpaper-hostinger-deploy
+```
+
+公開鍵をHostingerへ登録し、秘密鍵の全文を`HOSTINGER_SSH_PRIVATE_KEY`へ登録します。known_hostsは次のように取得できますが、登録前にhPanel等の信頼できる経路でフィンガープリントを照合してください。
+
+```bash
+ssh-keyscan -p 65002 HOSTINGER_SSH_HOST
+```
+
+初回デプロイ前に、Document Root兼Laravel配置先へ本番用`.env`を作成しておく必要があります。ワークフローは`.env`が存在しない場合、安全のためデプロイを停止します。rsyncは既存の`.env`を転送・削除しません。
+
+### 公開アクセス確認
+
+初回反映後は、通常ページが表示でき、非公開ファイルが`403`になることを確認します。いずれかが`200`になった場合は公開を停止し、`.htaccess`の有効性を確認してください。
+
+```bash
+base_url="https://実際のドメイン"
+
+curl -sS -o /dev/null -w "root: %{http_code}\n" "$base_url/"
+
+for protected_path in .env composer.json vendor/autoload.php storage/logs/laravel.log; do
+  curl -sS -o /dev/null -w "$protected_path: %{http_code}\n" \
+    "$base_url/$protected_path"
+done
+```
+
 ## cron
 
-hPanelには毎分1本だけ登録します。`/home/USER/domains/DOMAIN/app`は実際の配置先へ置換してください。
+hPanelには毎分1本だけ登録します。
 
 ```cron
-* * * * * cd /home/USER/domains/DOMAIN/app && /usr/bin/php artisan schedule:run >> /dev/null 2>&1
+* * * * * cd /home/u685478147/public_html/public_html/lucky_wallpaper && /usr/bin/php artisan schedule:run >> /dev/null 2>&1
 ```
 
 Laravel Schedulerが毎分、次相当のDBキューワーカーを起動します。

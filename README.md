@@ -73,4 +73,4 @@ php artisan schedule:list
 
 ## Hostinger
 
-本番前提、公開ディレクトリ、cron、キューの詳細は [docs/hostinger.md](docs/hostinger.md) を参照してください。
+`main`へのpush後、テスト成功時にGitHub ActionsからHostingerへ自動デプロイできます。本番前提、GitHub Secrets、公開ディレクトリ、cron、キューの詳細は [docs/hostinger.md](docs/hostinger.md) を参照してください。

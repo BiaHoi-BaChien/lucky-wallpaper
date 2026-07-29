@@ -1,0 +1,41 @@
+<IfModule mod_authz_core.c>
+    <FilesMatch "(?i)^(?:\.|auth\.json|composer\.(?:json|lock)|package(?:-lock)?\.json|phpunit\.xml|phpstan\.neon|vite\.config\.js|eslint\.config\.js|components\.json|artisan)$">
+        Require all denied
+    </FilesMatch>
+
+    <FilesMatch "(?i)\.(?:bak|conf|dist|ini|key|log|md|neon|pem|sql|sqlite|sqlite3|yaml|yml)$">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+    <FilesMatch "(?i)^(?:\.|auth\.json|composer\.(?:json|lock)|package(?:-lock)?\.json|phpunit\.xml|phpstan\.neon|vite\.config\.js|eslint\.config\.js|components\.json|artisan)$">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+
+    <FilesMatch "(?i)\.(?:bak|conf|dist|ini|key|log|md|neon|pem|sql|sqlite|sqlite3|yaml|yml)$">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Allow ACME challenges used for HTTPS certificate validation.
+    RewriteRule ^\.well-known(?:/|$) - [L]
+
+    # Block hidden paths and all non-public Laravel application directories.
+    RewriteRule (^|/)\. - [F,L,NC]
+    RewriteRule ^(?:app|bootstrap|config|database|deploy|docs|lang|node_modules|resources|routes|storage|tests|vendor)(?:/|$) - [F,L,NC]
+    RewriteRule ^(?!public(?:/|$)).*\.php$ - [F,L,NC]
+
+    # Requests already routed below public/ are handled by public/.htaccess.
+    RewriteRule ^public(?:/|$) - [L]
+
+    # Keep the Laravel project in this document root while exposing only public/.
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
+
+Options -Indexes
