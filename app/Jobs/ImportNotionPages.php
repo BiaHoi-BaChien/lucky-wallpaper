@@ -6,13 +6,14 @@ use App\Models\AnalysisSnapshot;
 use App\Models\SyncRun;
 use App\Models\Wallpaper;
 use App\Services\NotionClient;
+use Illuminate\Bus\Batchable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Queue\Queueable;
 
 class ImportNotionPages implements ShouldQueue
 {
-    use Queueable;
+    use Batchable, Queueable;
 
     public int $tries = 4;
 

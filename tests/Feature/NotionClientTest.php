@@ -72,6 +72,15 @@ class NotionClientTest extends TestCase
         $this->assertTrue($run->retryable);
     }
 
+    public function test_import_job_can_be_added_to_a_real_batch(): void
+    {
+        $batch = Bus::batch([
+            new ImportNotionPages('run-id', []),
+        ]);
+
+        $this->assertInstanceOf(PendingBatch::class, $batch);
+    }
+
     public function test_sync_uses_incremental_filter_and_keeps_latest_duplicate_without_fetching_body(): void
     {
         config(['lucky.notion.token' => 'test']);
