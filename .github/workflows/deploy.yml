@@ -158,7 +158,7 @@ jobs:
              php artisan package:discover --ansi
              php artisan optimize:clear
              php artisan config:cache
-             php artisan route:cache
+             # Route caching breaks the root route when this app is mounted below the domain root.
              php artisan view:cache
              php artisan queue:restart
              php artisan up"
