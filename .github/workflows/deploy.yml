@@ -67,6 +67,13 @@ jobs:
           npm ci
           npm run build
 
+      - name: Prepare Hostinger deployment artifact
+        if: steps.freshness.outputs.deploy == 'true'
+        run: |
+          artifact_path="$RUNNER_TEMP/lucky-wallpaper-deploy"
+          bash deploy/prepare-hostinger-artifact.sh "$artifact_path"
+          echo "DEPLOY_ARTIFACT=$artifact_path" >> "$GITHUB_ENV"
+
       - name: Validate deployment secrets
         if: steps.freshness.outputs.deploy == 'true'
         env:
@@ -130,15 +137,11 @@ jobs:
         run: |
           rsync -az --delete-delay \
             --exclude='/.env' \
-            --exclude='/.git/' \
-            --exclude='/.github/' \
             --exclude='/bootstrap/cache/*.php' \
-            --exclude='/node_modules/' \
-            --exclude='/public/hot' \
+            --exclude='/hot' \
             --exclude='/storage/' \
-            --exclude='/tests/' \
             -e "ssh -i $HOME/.ssh/hostinger -p $SSH_PORT -o BatchMode=yes -o StrictHostKeyChecking=yes" \
-            ./ "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/"
+            "$DEPLOY_ARTIFACT/" "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/"
 
       - name: Finalize Laravel deployment
         if: steps.freshness.outputs.deploy == 'true'

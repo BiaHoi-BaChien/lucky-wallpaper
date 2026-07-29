@@ -1,3 +1,9 @@
+DirectoryIndex index.php
+
+<IfModule mod_negotiation.c>
+    Options -MultiViews
+</IfModule>
+
 <IfModule mod_authz_core.c>
     <FilesMatch "(?i)^(?:\.|auth\.json|composer\.(?:json|lock)|package(?:-lock)?\.json|phpunit\.xml|phpstan\.neon|vite\.config\.js|eslint\.config\.js|components\.json|artisan)$">
         Require all denied
@@ -23,19 +29,27 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
+    # Preserve bearer credentials for Laravel.
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
     # Allow ACME challenges used for HTTPS certificate validation.
     RewriteRule ^\.well-known(?:/|$) - [L]
 
-    # Block hidden paths and all non-public Laravel application directories.
+    # Block hidden paths and all Laravel application directories.
     RewriteRule (^|/)\. - [F,L,NC]
-    RewriteRule ^(?:app|bootstrap|config|database|deploy|docs|lang|node_modules|resources|routes|storage|tests|vendor)(?:/|$) - [F,L,NC]
-    RewriteRule ^(?!public(?:/|$)).*\.php$ - [F,L,NC]
+    RewriteRule ^(?:app|bootstrap|config|database|deploy|docs|lang|node_modules|public|resources|routes|storage|tests|vendor)(?:/|$) - [F,L,NC]
+    RewriteRule ^(?!index\.php$).*\.php$ - [F,L,NC]
 
-    # Requests already routed below public/ are handled by public/.htaccess.
-    RewriteRule ^public(?:/|$) - [L]
+    # Redirect trailing slashes unless the request points to a directory.
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_URI} (.+)/$
+    RewriteRule ^ %1 [L,R=301]
 
-    # Keep the Laravel project in this document root while exposing only public/.
-    RewriteRule ^(.*)$ public/$1 [L]
+    # Send application requests to the front controller in this directory.
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^ index.php [L]
 </IfModule>
 
 Options -Indexes
