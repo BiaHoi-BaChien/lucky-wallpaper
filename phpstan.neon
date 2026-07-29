@@ -6,13 +6,3 @@ parameters:
     paths:
         - app
         - routes
-    excludePaths:
-        analyse:
-            - app/Http/Controllers/Auth/EmailVerificationNotificationController.php
-            - app/Http/Controllers/Auth/EmailVerificationPromptController.php
-            - app/Http/Controllers/Auth/NewPasswordController.php
-            - app/Http/Controllers/Auth/PasswordResetLinkController.php
-            - app/Http/Controllers/Auth/RegisteredUserController.php
-            - app/Http/Controllers/Auth/VerifyEmailController.php
-            - app/Http/Controllers/Settings/ProfileController.php
-            - app/Http/Requests/Settings/ProfileUpdateRequest.php
