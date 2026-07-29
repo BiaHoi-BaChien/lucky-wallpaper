@@ -1,0 +1,177 @@
+name: deploy
+
+on:
+  workflow_run:
+    workflows:
+      - tests
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to Hostinger
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: hostinger-production
+      cancel-in-progress: false
+    env:
+      DEPLOY_COMMIT: ${{ github.event.workflow_run.head_sha }}
+      DEPLOY_PATH: /home/u685478147/public_html/public_html/lucky_wallpaper
+
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_COMMIT }}
+
+      - name: Check whether commit is current main
+        id: freshness
+        run: |
+          remote_sha="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          if [ "$remote_sha" = "$DEPLOY_COMMIT" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "A newer main commit exists; skipping stale deployment."
+          fi
+
+      - name: Setup PHP
+        if: steps.freshness.outputs.deploy == 'true'
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.4
+          tools: composer:v2
+          coverage: none
+
+      - name: Setup Node
+        if: steps.freshness.outputs.deploy == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Build production artifact
+        if: steps.freshness.outputs.deploy == 'true'
+        run: |
+          composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
+          npm ci
+          npm run build
+
+      - name: Validate deployment secrets
+        if: steps.freshness.outputs.deploy == 'true'
+        env:
+          SSH_HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
+          SSH_PORT: ${{ secrets.HOSTINGER_SSH_PORT }}
+          SSH_USER: ${{ secrets.HOSTINGER_SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.HOSTINGER_SSH_KNOWN_HOSTS }}
+        run: |
+          for name in SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Required deployment secret is missing: $name"
+              exit 1
+            fi
+          done
+
+      - name: Configure SSH
+        if: steps.freshness.outputs.deploy == 'true'
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.HOSTINGER_SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/hostinger"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/hostinger" "$HOME/.ssh/known_hosts"
+
+      - name: Prepare Hostinger
+        if: steps.freshness.outputs.deploy == 'true'
+        env:
+          SSH_HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
+          SSH_PORT: ${{ secrets.HOSTINGER_SSH_PORT }}
+          SSH_USER: ${{ secrets.HOSTINGER_SSH_USER }}
+        run: |
+          ssh -i "$HOME/.ssh/hostinger" -p "$SSH_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" \
+            "set -e
+             mkdir -p '$DEPLOY_PATH' \
+               '$DEPLOY_PATH/storage/app/private/wallpapers' \
+               '$DEPLOY_PATH/storage/framework/cache/data' \
+               '$DEPLOY_PATH/storage/framework/sessions' \
+               '$DEPLOY_PATH/storage/framework/views' \
+               '$DEPLOY_PATH/storage/logs' \
+               '$DEPLOY_PATH/bootstrap/cache'
+             test -f '$DEPLOY_PATH/.env' || {
+               echo 'Missing production .env at $DEPLOY_PATH/.env' >&2
+               exit 1
+             }
+             if [ -f '$DEPLOY_PATH/artisan' ]; then
+               cd '$DEPLOY_PATH'
+               php artisan down --retry=60 || true
+             fi"
+
+      - name: Synchronize application
+        if: steps.freshness.outputs.deploy == 'true'
+        env:
+          SSH_HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
+          SSH_PORT: ${{ secrets.HOSTINGER_SSH_PORT }}
+          SSH_USER: ${{ secrets.HOSTINGER_SSH_USER }}
+        run: |
+          rsync -az --delete-delay \
+            --exclude='/.env' \
+            --exclude='/.git/' \
+            --exclude='/.github/' \
+            --exclude='/bootstrap/cache/*.php' \
+            --exclude='/node_modules/' \
+            --exclude='/public/hot' \
+            --exclude='/storage/' \
+            --exclude='/tests/' \
+            -e "ssh -i $HOME/.ssh/hostinger -p $SSH_PORT -o BatchMode=yes -o StrictHostKeyChecking=yes" \
+            ./ "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/"
+
+      - name: Finalize Laravel deployment
+        if: steps.freshness.outputs.deploy == 'true'
+        env:
+          SSH_HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
+          SSH_PORT: ${{ secrets.HOSTINGER_SSH_PORT }}
+          SSH_USER: ${{ secrets.HOSTINGER_SSH_USER }}
+        run: |
+          ssh -i "$HOME/.ssh/hostinger" -p "$SSH_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" \
+            "set -e
+             cd '$DEPLOY_PATH'
+             php artisan package:discover --ansi
+             php artisan optimize:clear
+             php artisan config:cache
+             php artisan route:cache
+             php artisan view:cache
+             php artisan queue:restart
+             php artisan up"
+
+      - name: Ensure application is online
+        if: always() && steps.freshness.outputs.deploy == 'true'
+        continue-on-error: true
+        env:
+          SSH_HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
+          SSH_PORT: ${{ secrets.HOSTINGER_SSH_PORT }}
+          SSH_USER: ${{ secrets.HOSTINGER_SSH_USER }}
+        run: |
+          ssh -i "$HOME/.ssh/hostinger" -p "$SSH_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" \
+            "if [ -f '$DEPLOY_PATH/artisan' ]; then
+               cd '$DEPLOY_PATH'
+               php artisan up || true
+             fi"
