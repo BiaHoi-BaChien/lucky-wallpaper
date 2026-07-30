@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import AppLayout from '@/layouts/app-layout';
 import { Head, Link } from '@inertiajs/react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface Wallpaper {
     id: number;
@@ -59,21 +60,36 @@ export default function WallpaperIndex({
                             </table>
                         </div>
                         <div className="mt-4 flex flex-wrap gap-2">
-                            {wallpapers.links.map((link) => (
-                                <Button
-                                    key={link.label}
-                                    size="sm"
-                                    variant={link.active ? 'default' : 'outline'}
-                                    disabled={!link.url}
-                                    asChild={Boolean(link.url)}
-                                >
-                                    {link.url ? (
-                                        <Link href={link.url} dangerouslySetInnerHTML={{ __html: link.label }} />
-                                    ) : (
-                                        <span dangerouslySetInnerHTML={{ __html: link.label }} />
-                                    )}
-                                </Button>
-                            ))}
+                            {wallpapers.links.map((link, index) => {
+                                const isPrevious = index === 0;
+                                const isNext = index === wallpapers.links.length - 1;
+                                const label = isPrevious ? (
+                                    <>
+                                        <ChevronLeft aria-hidden="true" />
+                                        <span className="sr-only">前ページ</span>
+                                    </>
+                                ) : isNext ? (
+                                    <>
+                                        <ChevronRight aria-hidden="true" />
+                                        <span className="sr-only">次ページ</span>
+                                    </>
+                                ) : (
+                                    <span dangerouslySetInnerHTML={{ __html: link.label }} />
+                                );
+
+                                return (
+                                    <Button
+                                        key={`${link.label}-${index}`}
+                                        size="sm"
+                                        variant={link.active ? 'default' : 'outline'}
+                                        disabled={!link.url}
+                                        asChild={Boolean(link.url)}
+                                        className={isPrevious || isNext ? 'size-9 p-0' : undefined}
+                                    >
+                                        {link.url ? <Link href={link.url}>{label}</Link> : <span>{label}</span>}
+                                    </Button>
+                                );
+                            })}
                         </div>
                     </CardContent>
                 </Card>
