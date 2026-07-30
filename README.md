@@ -59,6 +59,7 @@ php artisan serve
 - `POST /wallpapers/proposals`: 対象日の構図提案
 - `POST /wallpapers/{id}/repropose`: 同日の過去案を除外して再提案
 - `POST /wallpapers/{id}/image`: 承認案から画像生成
+- `GET /wallpapers/{id}/preview`: 認証済み画像プレビュー
 - `PUT /wallpapers/{id}/result`: VND賞金を保存し、設定済みの場合はNotionへバックアップ
 - `GET /operations/{id}`: 非同期処理の進捗
 - `GET /wallpapers/{id}/download`: 認証済み画像ダウンロード

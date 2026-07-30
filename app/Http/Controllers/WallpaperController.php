@@ -102,16 +102,17 @@ class WallpaperController extends Controller
 
     public function show(Wallpaper $wallpaper, NotionClient $notion): Response
     {
-        $downloadRequiresNotionConfiguration = $wallpaper->image_path === null
+        $localImageAvailable = $this->hasLocalImage($wallpaper);
+        $downloadRequiresNotionConfiguration = ! $localImageAvailable
             && $wallpaper->notion_page_id !== null
             && ! $notion->isConfigured();
 
         return Inertia::render('wallpapers/show', [
             'wallpaper' => $wallpaper->load(['proposals' => fn ($query) => $query->orderByDesc('sequence')]),
-            'downloadAvailable' => $wallpaper->image_path !== null
+            'imageAvailable' => $localImageAvailable
                 || ($wallpaper->notion_page_id !== null && $notion->isConfigured()),
             'downloadUnavailableReason' => $downloadRequiresNotionConfiguration
-                ? '画像はNotionバックアップに保管されています。ダウンロードするにはNOTION_TOKENの設定が必要です。'
+                ? '画像はNotionバックアップに保管されています。プレビューまたはダウンロードするにはNOTION_TOKENの設定が必要です。'
                 : null,
             'latestApiRun' => ApiRun::query()
                 ->where('subject_type', $wallpaper->getMorphClass())
@@ -152,22 +153,47 @@ class WallpaperController extends Controller
     public function image(Request $request, Wallpaper $wallpaper): RedirectResponse
     {
         $validated = $request->validate([
-            'proposal_id' => ['required', 'integer'],
+            'proposal_id' => ['nullable', 'integer'],
         ]);
-        if ($wallpaper->image_path !== null) {
+        if ($this->hasLocalImage($wallpaper)) {
             return back();
         }
 
-        $proposal = CompositionProposal::query()
-            ->where('wallpaper_id', $wallpaper->id)
-            ->whereKey($validated['proposal_id'])
-            ->firstOrFail();
-        $wallpaper->proposals()->where('status', 'proposed')->whereKeyNot($proposal->id)->update(['status' => 'rejected']);
-        $proposal->update(['status' => 'approved']);
+        $active = ApiRun::query()
+            ->where('subject_type', $wallpaper->getMorphClass())
+            ->where('subject_id', $wallpaper->id)
+            ->where('type', 'image_generation')
+            ->whereIn('status', ['queued', 'running'])
+            ->exists();
+        if ($active) {
+            throw ValidationException::withMessages(['image' => '画像生成は既に実行中です。']);
+        }
 
-        $inputHash = hash('sha256', $proposal->input_hash.'|image');
+        $proposal = isset($validated['proposal_id'])
+            ? CompositionProposal::query()
+                ->where('wallpaper_id', $wallpaper->id)
+                ->whereKey($validated['proposal_id'])
+                ->firstOrFail()
+            : null;
+        if ($proposal === null && ! $this->hasCompositionDetails($wallpaper)) {
+            throw ValidationException::withMessages([
+                'image' => '画像生成に必要な構図の詳細がありません。',
+            ]);
+        }
+
+        if ($proposal !== null) {
+            $wallpaper->proposals()
+                ->where('status', 'proposed')
+                ->whereKeyNot($proposal->id)
+                ->update(['status' => 'rejected']);
+            $proposal->update(['status' => 'approved']);
+        }
+
+        $inputHash = $proposal !== null
+            ? hash('sha256', $proposal->input_hash.'|image')
+            : hash('sha256', $wallpaper->compositionDetails().'|image');
         $run = $this->createApiRun($wallpaper, 'image_generation', $inputHash, config('lucky.openai.image_model'));
-        GenerateWallpaperImage::dispatch($wallpaper->id, $proposal->id, $run->id);
+        GenerateWallpaperImage::dispatch($wallpaper->id, $proposal?->id, $run->id);
 
         return back()->with('operationId', $run->id);
     }
@@ -204,16 +230,39 @@ class WallpaperController extends Controller
 
     public function download(Wallpaper $wallpaper, NotionClient $notion): StreamedResponse|HttpResponse
     {
-        if ($wallpaper->image_path !== null) {
-            abort_unless(Storage::disk((string) $wallpaper->image_disk)->exists($wallpaper->image_path), 404);
-
-            return Storage::download(
-                $wallpaper->image_path,
+        if ($this->hasLocalImage($wallpaper)) {
+            return Storage::disk((string) $wallpaper->image_disk)->download(
+                (string) $wallpaper->image_path,
                 $wallpaper->target_date->format('Y-m-d').'-lucky-wallpaper.jpg',
                 ['Content-Type' => 'image/jpeg'],
             );
         }
 
+        return $this->notionImageResponse($wallpaper, $notion, true);
+    }
+
+    public function preview(Wallpaper $wallpaper, NotionClient $notion): StreamedResponse|HttpResponse
+    {
+        if ($this->hasLocalImage($wallpaper)) {
+            return Storage::disk((string) $wallpaper->image_disk)->response(
+                (string) $wallpaper->image_path,
+                $wallpaper->target_date->format('Y-m-d').'-lucky-wallpaper.jpg',
+                [
+                    'Content-Type' => $wallpaper->image_mime ?: 'image/jpeg',
+                    'Cache-Control' => 'private, max-age=300',
+                ],
+                'inline',
+            );
+        }
+
+        return $this->notionImageResponse($wallpaper, $notion, false);
+    }
+
+    private function notionImageResponse(
+        Wallpaper $wallpaper,
+        NotionClient $notion,
+        bool $download,
+    ): HttpResponse {
         abort_if($wallpaper->notion_page_id === null, 404);
         abort_unless(
             $notion->isConfigured(),
@@ -228,9 +277,29 @@ class WallpaperController extends Controller
 
         return response($response->body(), 200, [
             'Content-Type' => $response->header('Content-Type') ?: 'image/jpeg',
-            'Content-Disposition' => 'attachment; filename="'.$wallpaper->target_date->format('Y-m-d').'-lucky-wallpaper.jpg"',
+            'Content-Disposition' => ($download ? 'attachment' : 'inline')
+                .'; filename="'.$wallpaper->target_date->format('Y-m-d').'-lucky-wallpaper.jpg"',
             'Cache-Control' => 'private, no-store',
         ]);
+    }
+
+    private function hasLocalImage(Wallpaper $wallpaper): bool
+    {
+        return $wallpaper->image_disk !== null
+            && $wallpaper->image_path !== null
+            && Storage::disk($wallpaper->image_disk)->exists($wallpaper->image_path);
+    }
+
+    private function hasCompositionDetails(Wallpaper $wallpaper): bool
+    {
+        return collect([
+            $wallpaper->title,
+            $wallpaper->conclusion,
+            $wallpaper->overview,
+            $wallpaper->composition,
+            $wallpaper->color_wu_xing,
+            $wallpaper->symbolism,
+        ])->contains(fn (?string $value): bool => $value !== null && trim($value) !== '');
     }
 
     private function createApiRun(

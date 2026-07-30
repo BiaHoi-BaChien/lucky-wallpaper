@@ -3,16 +3,22 @@
 namespace Tests\Feature;
 
 use App\Jobs\GenerateCompositionProposal;
+use App\Jobs\GenerateWallpaperImage;
 use App\Jobs\SyncWallpaperResultToNotion;
 use App\Models\AnalysisSnapshot;
+use App\Models\ApiRun;
 use App\Models\SyncRun;
 use App\Models\User;
 use App\Models\Wallpaper;
 use App\Services\HistoricalAnalysisService;
+use App\Services\ImageService;
+use App\Services\OpenAiClient;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia;
+use Mockery;
 use Tests\TestCase;
 
 class WallpaperWorkflowTest extends TestCase
@@ -125,6 +131,160 @@ class WallpaperWorkflowTest extends TestCase
         $wallpaper = Wallpaper::factory()->create();
 
         $this->get("/wallpapers/{$wallpaper->id}/download")->assertRedirect('/login');
+    }
+
+    public function test_local_image_is_displayed_as_an_inline_preview(): void
+    {
+        Storage::fake('local');
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'image_disk' => 'local',
+            'image_path' => 'wallpapers/preview.jpg',
+            'image_mime' => 'image/jpeg',
+        ]);
+        Storage::disk('local')->put('wallpapers/preview.jpg', 'image-bytes');
+
+        $response = $this->actingAs($user)
+            ->get("/wallpapers/{$wallpaper->id}/preview")
+            ->assertOk()
+            ->assertHeader('content-type', 'image/jpeg')
+            ->assertHeader('content-disposition', 'inline; filename='.$wallpaper->target_date->format('Y-m-d').'-lucky-wallpaper.jpg');
+        $this->assertSame('image-bytes', $response->streamedContent());
+
+        $this->actingAs($user)->get("/wallpapers/{$wallpaper->id}")
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('wallpapers/show', false)
+                ->where('imageAvailable', true));
+    }
+
+    public function test_imported_composition_details_can_queue_image_regeneration_without_a_proposal(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'source' => 'notion',
+            'state' => 'archived',
+            'image_disk' => null,
+            'image_path' => null,
+            'notion_page_id' => null,
+        ]);
+
+        $this->actingAs($user)
+            ->post("/wallpapers/{$wallpaper->id}/image")
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        Queue::assertPushed(
+            GenerateWallpaperImage::class,
+            fn (GenerateWallpaperImage $job): bool => $job->wallpaperId === $wallpaper->id
+                && $job->proposalId === null,
+        );
+        $this->assertDatabaseHas('api_runs', [
+            'subject_id' => $wallpaper->id,
+            'type' => 'image_generation',
+            'status' => 'queued',
+        ]);
+    }
+
+    public function test_image_regeneration_requires_composition_details(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'title' => null,
+            'conclusion' => null,
+            'overview' => null,
+            'composition' => null,
+            'color_wu_xing' => null,
+            'symbolism' => null,
+            'image_disk' => null,
+            'image_path' => null,
+        ]);
+
+        $this->actingAs($user)
+            ->post("/wallpapers/{$wallpaper->id}/image")
+            ->assertSessionHasErrors('image');
+
+        Queue::assertNotPushed(GenerateWallpaperImage::class);
+        $this->assertDatabaseCount('api_runs', 0);
+    }
+
+    public function test_active_image_generation_cannot_be_queued_twice(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'image_disk' => null,
+            'image_path' => null,
+        ]);
+        ApiRun::query()->create([
+            'type' => 'image_generation',
+            'model' => 'test-image-model',
+            'prompt_version' => 'v1',
+            'input_hash' => str_repeat('a', 64),
+            'subject_type' => $wallpaper->getMorphClass(),
+            'subject_id' => $wallpaper->id,
+            'status' => 'running',
+        ]);
+
+        $this->actingAs($user)
+            ->post("/wallpapers/{$wallpaper->id}/image")
+            ->assertSessionHasErrors('image');
+
+        Queue::assertNotPushed(GenerateWallpaperImage::class);
+        $this->assertDatabaseCount('api_runs', 1);
+    }
+
+    public function test_image_regeneration_job_uses_saved_composition_details_without_a_proposal(): void
+    {
+        $wallpaper = Wallpaper::factory()->create([
+            'title' => '保存済みの構図名',
+            'art_style' => '保存済みの画風',
+            'overview' => '保存済みの概要',
+            'composition' => '保存済みの配置',
+            'color_wu_xing' => '保存済みの色彩',
+            'symbolism' => '保存済みの象徴意図',
+            'image_disk' => null,
+            'image_path' => null,
+        ]);
+        $run = ApiRun::query()->create([
+            'type' => 'image_generation',
+            'model' => 'test-image-model',
+            'prompt_version' => 'v1',
+            'input_hash' => str_repeat('b', 64),
+            'subject_type' => $wallpaper->getMorphClass(),
+            'subject_id' => $wallpaper->id,
+        ]);
+        $openAi = Mockery::mock(OpenAiClient::class);
+        $openAi->shouldReceive('image')
+            ->once()
+            ->with(
+                Mockery::on(fn (ApiRun $actual): bool => $actual->is($run)),
+                Mockery::on(fn (string $prompt): bool => str_contains($prompt, '構図名: 保存済みの構図名')
+                    && str_contains($prompt, '画風: 保存済みの画風')
+                    && str_contains($prompt, '配置: 保存済みの配置')),
+            )
+            ->andReturn('generated-image-bytes');
+        $images = Mockery::mock(ImageService::class);
+        $images->shouldReceive('normalizeAndStore')
+            ->once()
+            ->with('generated-image-bytes')
+            ->andReturn([
+                'disk' => 'local',
+                'path' => 'wallpapers/regenerated.jpg',
+                'mime' => 'image/jpeg',
+                'bytes' => 123,
+                'sha256' => str_repeat('c', 64),
+            ]);
+
+        (new GenerateWallpaperImage($wallpaper->id, null, $run->id))->handle($openAi, $images);
+
+        $this->assertDatabaseHas('wallpapers', [
+            'id' => $wallpaper->id,
+            'chosen_proposal_id' => null,
+            'image_path' => 'wallpapers/regenerated.jpg',
+            'state' => 'generated',
+        ]);
     }
 
     private function createCurrentAnalysis(): AnalysisSnapshot
