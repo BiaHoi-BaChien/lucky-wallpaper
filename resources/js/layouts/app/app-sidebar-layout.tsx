@@ -11,7 +11,7 @@ export default function AppSidebarLayout({ children, breadcrumbs = [] }: { child
             <AppSidebar />
             <AppContent variant="sidebar">
                 <AppSidebarHeader breadcrumbs={breadcrumbs} />
-                <Alert role="note" variant="warning" className="mx-4 mt-4">
+                <Alert role="note" variant="warning" className="mx-4 mt-4 w-auto">
                     本システムの提案は、過去実績との相関に基づく創作上の傾向です。宝くじの当選や当選確率の向上を保証するものではありません。
                 </Alert>
                 {children}
