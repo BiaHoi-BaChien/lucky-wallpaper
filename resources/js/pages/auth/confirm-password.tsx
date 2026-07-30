@@ -23,21 +23,18 @@ export default function ConfirmPassword() {
     };
 
     return (
-        <AuthLayout
-            title="Confirm your password"
-            description="This is a secure area of the application. Please confirm your password before continuing."
-        >
-            <Head title="Confirm password" />
+        <AuthLayout title="パスワードの確認" description="安全のため、操作を続ける前に現在のパスワードを確認します。">
+            <Head title="パスワードの確認" />
 
             <form onSubmit={submit}>
                 <div className="space-y-6">
                     <div className="grid gap-2">
-                        <Label htmlFor="password">Password</Label>
+                        <Label htmlFor="password">現在のパスワード</Label>
                         <Input
                             id="password"
                             type="password"
                             name="password"
-                            placeholder="Password"
+                            placeholder="現在のパスワード"
                             autoComplete="current-password"
                             value={data.password}
                             autoFocus
@@ -50,7 +47,7 @@ export default function ConfirmPassword() {
                     <div className="flex items-center">
                         <Button className="w-full" disabled={processing}>
                             {processing && <LoaderCircle className="h-4 w-4 animate-spin" />}
-                            Confirm password
+                            パスワードを確認
                         </Button>
                     </div>
                 </div>

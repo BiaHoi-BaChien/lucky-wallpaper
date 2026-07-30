@@ -1,10 +1,12 @@
 import InputError from '@/components/input-error';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Operation, useOperation } from '@/hooks/use-operation';
 import AppLayout from '@/layouts/app-layout';
+import { wallpaperStateLabel } from '@/lib/wallpaper-state';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
 import { FormEvent } from 'react';
@@ -62,20 +64,25 @@ export default function Results({
                         <CardDescription>登録済み壁紙を日付で取得します。</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <form onSubmit={find} className="flex gap-3">
+                        <form onSubmit={find} className="flex flex-col gap-3 sm:flex-row">
                             <Input type="date" value={search.data.date} onChange={(e) => search.setData('date', e.target.value)} required />
-                            <Button>検索</Button>
+                            <Button className="w-full sm:w-auto">検索</Button>
                         </form>
                     </CardContent>
                 </Card>
 
-                {selectedDate && !wallpaper && <div className="rounded-lg border p-4">この日付の壁紙はありません。</div>}
+                {selectedDate && !wallpaper && (
+                    <Alert>
+                        <AlertTitle>壁紙が見つかりません。</AlertTitle>
+                        <AlertDescription>選択した日付には壁紙が登録されていません。</AlertDescription>
+                    </Alert>
+                )}
                 {wallpaper && (
                     <Card>
                         <CardHeader>
                             <CardTitle>{wallpaper.title ?? '構図名未設定'}</CardTitle>
                             <CardDescription>
-                                {wallpaper.target_date}・{wallpaper.art_style ?? '画風未設定'}・{wallpaper.state}
+                                {wallpaper.target_date}・{wallpaper.art_style ?? '画風未設定'}・{wallpaperStateLabel(wallpaper.state)}
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-5">
@@ -100,7 +107,9 @@ export default function Results({
                             {resultOperation && resultOperation.type !== undefined && (
                                 <div className="bg-muted rounded-lg p-3 text-sm">
                                     同期状態: {resultOperation.status}
-                                    {resultOperation.error_code && <span className="ml-2 text-red-600">{resultOperation.error_code}</span>}
+                                    {resultOperation.error_code && (
+                                        <span className="ml-2 text-red-600 dark:text-red-400">{resultOperation.error_code}</span>
+                                    )}
                                 </div>
                             )}
                         </CardContent>
@@ -132,9 +141,9 @@ export default function Results({
                                     登録 {importOperation.imported ?? 0}・既存 {importOperation.skipped_existing ?? 0}・ 必須不足{' '}
                                     {importOperation.skipped_invalid ?? 0}・本文空 {importOperation.skipped_empty_body ?? 0}
                                 </p>
-                                {importOperation.error_code && <p className="text-red-600">エラー: {importOperation.error_code}</p>}
+                                {importOperation.error_code && <p className="text-red-600 dark:text-red-400">エラー: {importOperation.error_code}</p>}
                                 {importOperation.warnings?.map((warning) => (
-                                    <p key={warning} className="text-amber-700">
+                                    <p key={warning} className="text-amber-700 dark:text-amber-300">
                                         警告: {warning}
                                     </p>
                                 ))}

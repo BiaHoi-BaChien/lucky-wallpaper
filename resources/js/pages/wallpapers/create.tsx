@@ -1,9 +1,11 @@
 import InputError from '@/components/input-error';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import AppLayout from '@/layouts/app-layout';
+import { wallpaperStateLabel } from '@/lib/wallpaper-state';
 import { Head, Link, router, useForm } from '@inertiajs/react';
 import { FormEvent } from 'react';
 
@@ -56,15 +58,17 @@ export default function CreateWallpaper({
                             <InputError message={form.errors.target_date} />
                         </div>
                         {existing ? (
-                            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
-                                <p className="font-medium">この日付の壁紙は登録済みです。</p>
-                                <p className="text-sm">
-                                    {existing.title ?? '構図生成待ち'}（{existing.state}）
-                                </p>
-                                <Button asChild className="mt-3">
-                                    <Link href={route('wallpapers.show', { wallpaper: existing.id })}>詳細を表示</Link>
-                                </Button>
-                            </div>
+                            <Alert variant="warning">
+                                <AlertTitle>この日付の壁紙は登録済みです。</AlertTitle>
+                                <AlertDescription>
+                                    <p>
+                                        {existing.title ?? '構図生成待ち'}（{wallpaperStateLabel(existing.state)}）
+                                    </p>
+                                    <Button asChild className="mt-3">
+                                        <Link href={route('wallpapers.show', { wallpaper: existing.id })}>詳細を表示</Link>
+                                    </Button>
+                                </AlertDescription>
+                            </Alert>
                         ) : (
                             <form onSubmit={submit}>
                                 <Button disabled={form.processing}>構図を提案してもらう</Button>

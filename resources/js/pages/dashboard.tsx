@@ -31,7 +31,7 @@ function Stat({ title, value, icon }: { title: string; value: string; icon: Reac
         <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium">{title}</CardTitle>
-                <span className="text-amber-600">{icon}</span>
+                <span className="text-amber-600 dark:text-amber-400">{icon}</span>
             </CardHeader>
             <CardContent>
                 <div className="text-2xl font-bold">{value}</div>
