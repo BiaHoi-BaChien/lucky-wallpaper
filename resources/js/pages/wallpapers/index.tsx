@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import AppLayout from '@/layouts/app-layout';
+import { wallpaperStateLabel } from '@/lib/wallpaper-state';
 import { Head, Link } from '@inertiajs/react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -27,28 +28,41 @@ export default function WallpaperIndex({
                         <CardTitle>壁紙履歴</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="overflow-x-auto">
+                        <div className="overflow-x-auto rounded-md border">
                             <table className="w-full text-left text-sm">
                                 <thead>
-                                    <tr className="border-b">
+                                    <tr className="bg-muted/50 border-b">
                                         <th className="p-3">対象日</th>
                                         <th className="p-3">構図</th>
                                         <th className="p-3">画風</th>
                                         <th className="p-3">賞金</th>
                                         <th className="p-3">状態</th>
-                                        <th />
+                                        <th>
+                                            <span className="sr-only">操作</span>
+                                        </th>
                                     </tr>
                                 </thead>
                                 <tbody>
+                                    {wallpapers.data.length === 0 && (
+                                        <tr>
+                                            <td colSpan={6} className="text-muted-foreground p-6 text-center">
+                                                壁紙はまだ登録されていません。
+                                            </td>
+                                        </tr>
+                                    )}
                                     {wallpapers.data.map((wallpaper) => (
-                                        <tr key={wallpaper.id} className="border-b">
-                                            <td className="p-3">{wallpaper.target_date}</td>
+                                        <tr key={wallpaper.id} className="border-b last:border-b-0">
+                                            <td className="p-3 whitespace-nowrap">{wallpaper.target_date}</td>
                                             <td className="p-3">{wallpaper.title ?? '-'}</td>
                                             <td className="p-3">{wallpaper.art_style ?? '-'}</td>
-                                            <td className="p-3">
+                                            <td className="p-3 whitespace-nowrap">
                                                 {wallpaper.prize_vnd === null ? '-' : `${wallpaper.prize_vnd.toLocaleString()} VND`}
                                             </td>
-                                            <td className="p-3">{wallpaper.state}</td>
+                                            <td className="p-3">
+                                                <span className="bg-secondary text-secondary-foreground inline-flex rounded-full px-2 py-1 text-xs font-medium whitespace-nowrap">
+                                                    {wallpaperStateLabel(wallpaper.state)}
+                                                </span>
+                                            </td>
                                             <td className="p-3">
                                                 <Button size="sm" variant="outline" asChild>
                                                     <Link href={route('wallpapers.show', { wallpaper: wallpaper.id })}>詳細</Link>
@@ -59,38 +73,40 @@ export default function WallpaperIndex({
                                 </tbody>
                             </table>
                         </div>
-                        <div className="mt-4 flex flex-wrap gap-2">
-                            {wallpapers.links.map((link, index) => {
-                                const isPrevious = index === 0;
-                                const isNext = index === wallpapers.links.length - 1;
-                                const label = isPrevious ? (
-                                    <>
-                                        <ChevronLeft aria-hidden="true" />
-                                        <span className="sr-only">前ページ</span>
-                                    </>
-                                ) : isNext ? (
-                                    <>
-                                        <ChevronRight aria-hidden="true" />
-                                        <span className="sr-only">次ページ</span>
-                                    </>
-                                ) : (
-                                    <span dangerouslySetInnerHTML={{ __html: link.label }} />
-                                );
+                        {wallpapers.links.length > 3 && (
+                            <nav className="mt-4 flex flex-wrap gap-2" aria-label="壁紙履歴のページ送り">
+                                {wallpapers.links.map((link, index) => {
+                                    const isPrevious = index === 0;
+                                    const isNext = index === wallpapers.links.length - 1;
+                                    const label = isPrevious ? (
+                                        <>
+                                            <ChevronLeft aria-hidden="true" />
+                                            <span className="sr-only">前ページ</span>
+                                        </>
+                                    ) : isNext ? (
+                                        <>
+                                            <ChevronRight aria-hidden="true" />
+                                            <span className="sr-only">次ページ</span>
+                                        </>
+                                    ) : (
+                                        <span dangerouslySetInnerHTML={{ __html: link.label }} />
+                                    );
 
-                                return (
-                                    <Button
-                                        key={`${link.label}-${index}`}
-                                        size="sm"
-                                        variant={link.active ? 'default' : 'outline'}
-                                        disabled={!link.url}
-                                        asChild={Boolean(link.url)}
-                                        className={isPrevious || isNext ? 'size-9 p-0' : undefined}
-                                    >
-                                        {link.url ? <Link href={link.url}>{label}</Link> : <span>{label}</span>}
-                                    </Button>
-                                );
-                            })}
-                        </div>
+                                    return (
+                                        <Button
+                                            key={`${link.label}-${index}`}
+                                            size="sm"
+                                            variant={link.active ? 'default' : 'outline'}
+                                            disabled={!link.url}
+                                            asChild={Boolean(link.url)}
+                                            className={isPrevious || isNext ? 'size-9 p-0' : undefined}
+                                        >
+                                            {link.url ? <Link href={link.url}>{label}</Link> : <span>{label}</span>}
+                                        </Button>
+                                    );
+                                })}
+                            </nav>
+                        )}
                     </CardContent>
                 </Card>
             </div>

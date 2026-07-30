@@ -45,13 +45,13 @@ export default function Passkeys({ passkeys }: { passkeys: Passkey[] }) {
                         </Link>
                         を開いてください。
                     </p>
-                    <form onSubmit={register} className="flex gap-3">
+                    <form onSubmit={register} className="flex flex-col gap-3 sm:flex-row">
                         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="例: Windows Hello" required />
-                        <Button disabled={!registration.isSupported || registration.isLoading || name.trim() === ''}>
+                        <Button className="w-full sm:w-auto" disabled={!registration.isSupported || registration.isLoading || name.trim() === ''}>
                             {registration.isLoading ? '登録中…' : '登録'}
                         </Button>
                     </form>
-                    {registration.error && <p className="text-sm text-red-600">{registration.error}</p>}
+                    {registration.error && <p className="text-sm text-red-600 dark:text-red-400">{registration.error}</p>}
                     <div className="space-y-3">
                         {passkeys.length === 0 && <p className="text-muted-foreground text-sm">登録済みパスキーはありません。</p>}
                         {passkeys.map((passkey) => (

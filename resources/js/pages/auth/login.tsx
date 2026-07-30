@@ -101,11 +101,11 @@ export default function Login({ status }: LoginProps) {
                     >
                         {passkey.isLoading ? '確認中…' : 'パスキーでログイン'}
                     </Button>
-                    {passkey.error && <p className="text-sm text-red-600">{passkey.error}</p>}
+                    {passkey.error && <p className="text-sm text-red-600 dark:text-red-400">{passkey.error}</p>}
                 </div>
             </form>
 
-            {status && <div className="mb-4 text-center text-sm font-medium text-green-600">{status}</div>}
+            {status && <div className="mb-4 text-center text-sm font-medium text-green-600 dark:text-green-400">{status}</div>}
         </AuthLayout>
     );
 }

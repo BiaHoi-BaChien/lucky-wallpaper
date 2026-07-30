@@ -1,7 +1,9 @@
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Operation, useOperation } from '@/hooks/use-operation';
 import AppLayout from '@/layouts/app-layout';
+import { proposalStatusLabel, wallpaperStateLabel } from '@/lib/wallpaper-state';
 import { Head, router } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
 
@@ -49,7 +51,7 @@ export default function ShowWallpaper({ wallpaper, latestApiRun }: { wallpaper: 
             <div className="space-y-6 p-4">
                 <div>
                     <h1 className="text-2xl font-bold">{wallpaper.target_date}</h1>
-                    <p className="text-muted-foreground">状態: {wallpaper.state}</p>
+                    <p className="text-muted-foreground">状態: {wallpaperStateLabel(wallpaper.state)}</p>
                 </div>
                 {active && (
                     <div className="bg-muted flex items-center gap-2 rounded-lg p-4">
@@ -58,14 +60,17 @@ export default function ShowWallpaper({ wallpaper, latestApiRun }: { wallpaper: 
                     </div>
                 )}
                 {operation?.status === 'failed' && (
-                    <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-red-800">処理失敗: {operation.error_code}</div>
+                    <Alert variant="destructive">
+                        <AlertTitle>処理に失敗しました。</AlertTitle>
+                        <AlertDescription>エラーコード: {operation.error_code}</AlertDescription>
+                    </Alert>
                 )}
                 {current && (
                     <Card>
                         <CardHeader>
                             <CardTitle>{current.conclusion}</CardTitle>
                             <p className="text-muted-foreground text-sm">
-                                案 #{current.sequence}・{current.status}
+                                案 #{current.sequence}・{proposalStatusLabel(current.status)}
                             </p>
                         </CardHeader>
                         <CardContent className="space-y-5">
@@ -116,11 +121,14 @@ export default function ShowWallpaper({ wallpaper, latestApiRun }: { wallpaper: 
                     <Button onClick={() => router.post(route('wallpapers.repropose', { wallpaper: wallpaper.id }))}>構図提案を再試行</Button>
                 )}
                 {wallpaper.warnings && wallpaper.warnings.length > 0 && (
-                    <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm">
-                        {wallpaper.warnings.map((warning) => (
-                            <p key={warning}>{warning}</p>
-                        ))}
-                    </div>
+                    <Alert role="note" variant="warning">
+                        <AlertTitle>注意事項</AlertTitle>
+                        <AlertDescription className="space-y-1">
+                            {wallpaper.warnings.map((warning) => (
+                                <p key={warning}>{warning}</p>
+                            ))}
+                        </AlertDescription>
+                    </Alert>
                 )}
             </div>
         </AppLayout>
