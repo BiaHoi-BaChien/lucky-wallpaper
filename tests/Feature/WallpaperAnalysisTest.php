@@ -120,7 +120,7 @@ class WallpaperAnalysisTest extends TestCase
         $this->assertSame('succeeded', $run->status);
     }
 
-    public function test_composition_api_receives_saved_markdown_analysis(): void
+    public function test_composition_api_receives_target_date_and_saved_markdown_analysis(): void
     {
         config(['lucky.openai.api_key' => 'test']);
         Wallpaper::factory()->create([
@@ -161,10 +161,13 @@ class WallpaperAnalysisTest extends TestCase
         );
 
         Http::assertSent(function (Request $request) use ($analysis): bool {
+            $instructions = $request->data()['instructions'] ?? '';
             $input = $request->data()['input'] ?? '';
             $decoded = is_string($input) ? json_decode($input, true) : null;
 
-            return is_array($decoded)
+            return is_string($instructions)
+                && str_contains($instructions, '2026年8月4日用のスマートフォン壁紙です。')
+                && is_array($decoded)
                 && ($decoded['historical_analysis_markdown'] ?? null) === $analysis->summary;
         });
         $this->assertDatabaseHas('composition_proposals', [
