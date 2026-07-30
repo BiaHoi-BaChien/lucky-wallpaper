@@ -18,6 +18,100 @@ class WallpaperDeletionTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_only_local_image_can_be_deleted_while_history_is_retained(): void
+    {
+        config(['lucky.notion.token' => 'test']);
+        Storage::fake('local');
+        Http::preventStrayRequests();
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'notion_page_id' => 'notion-page-id',
+            'image_disk' => 'local',
+            'image_path' => 'wallpapers/image-only.jpg',
+            'image_mime' => 'image/jpeg',
+            'image_bytes' => 11,
+            'image_sha256' => str_repeat('a', 64),
+        ]);
+        Storage::disk('local')->put('wallpapers/image-only.jpg', 'image-bytes');
+
+        $this->actingAs($user)
+            ->from("/wallpapers/{$wallpaper->id}")
+            ->delete("/wallpapers/{$wallpaper->id}/image")
+            ->assertRedirect("/wallpapers/{$wallpaper->id}")
+            ->assertSessionHas('status', '画像ファイルを削除しました。履歴データは保持されています。');
+
+        Storage::disk('local')->assertMissing('wallpapers/image-only.jpg');
+        $this->assertDatabaseHas('wallpapers', [
+            'id' => $wallpaper->id,
+            'notion_page_id' => 'notion-page-id',
+            'title' => $wallpaper->title,
+            'image_disk' => null,
+            'image_path' => null,
+            'image_mime' => null,
+            'image_bytes' => null,
+            'image_sha256' => null,
+        ]);
+        Http::assertNothingSent();
+    }
+
+    public function test_missing_local_image_metadata_is_cleared_without_deleting_history(): void
+    {
+        Storage::fake('local');
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'image_disk' => 'local',
+            'image_path' => 'wallpapers/already-missing.jpg',
+            'image_mime' => 'image/jpeg',
+        ]);
+
+        $this->actingAs($user)
+            ->from("/wallpapers/{$wallpaper->id}")
+            ->delete("/wallpapers/{$wallpaper->id}/image")
+            ->assertRedirect("/wallpapers/{$wallpaper->id}")
+            ->assertSessionHas('status', '画像ファイルは既に存在しません。履歴データは保持されています。');
+
+        $this->assertDatabaseHas('wallpapers', [
+            'id' => $wallpaper->id,
+            'image_disk' => null,
+            'image_path' => null,
+            'image_mime' => null,
+        ]);
+    }
+
+    public function test_local_image_cannot_be_deleted_while_a_process_is_active(): void
+    {
+        Storage::fake('local');
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'image_disk' => 'local',
+            'image_path' => 'wallpapers/keep-while-processing.jpg',
+        ]);
+        Storage::disk('local')->put('wallpapers/keep-while-processing.jpg', 'image-bytes');
+        ApiRun::query()->create([
+            'type' => 'image_generation',
+            'model' => 'test-model',
+            'prompt_version' => 'v1',
+            'input_hash' => str_repeat('b', 64),
+            'status' => 'running',
+            'subject_type' => $wallpaper->getMorphClass(),
+            'subject_id' => $wallpaper->id,
+        ]);
+
+        $this->actingAs($user)
+            ->from("/wallpapers/{$wallpaper->id}")
+            ->delete("/wallpapers/{$wallpaper->id}/image")
+            ->assertRedirect("/wallpapers/{$wallpaper->id}")
+            ->assertSessionHasErrors([
+                'deleteImage' => '処理中の履歴は削除できません。処理完了後に再試行してください。',
+            ]);
+
+        Storage::disk('local')->assertExists('wallpapers/keep-while-processing.jpg');
+        $this->assertDatabaseHas('wallpapers', [
+            'id' => $wallpaper->id,
+            'image_path' => 'wallpapers/keep-while-processing.jpg',
+        ]);
+    }
+
     public function test_wallpaper_history_deletes_database_records_image_and_notion_page(): void
     {
         config(['lucky.notion.token' => 'test']);
