@@ -27,16 +27,16 @@ export default function WallpaperIndex({
     return (
         <AppLayout breadcrumbs={[{ title: '壁紙履歴・ダウンロード', href: route('wallpapers.index') }]}>
             <Head title="壁紙履歴" />
-            <div className="p-4">
+            <div className="min-w-0 p-4">
                 <Card>
-                    <CardHeader>
+                    <CardHeader className="p-4 sm:p-6">
                         <CardTitle>壁紙履歴</CardTitle>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
                         {flash.status && <Alert className="mb-4">{flash.status}</Alert>}
-                        <div className="overflow-x-auto rounded-md border">
-                            <table className="w-full text-left text-sm">
-                                <thead>
+                        <div className="min-w-0 rounded-md border">
+                            <table className="block w-full text-left text-sm md:table">
+                                <thead className="hidden md:table-header-group">
                                     <tr className="bg-muted/50 border-b">
                                         <th className="p-3">対象日</th>
                                         <th className="p-3">構図</th>
@@ -48,29 +48,45 @@ export default function WallpaperIndex({
                                         </th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody className="block w-full md:table-row-group">
                                     {wallpapers.data.length === 0 && (
-                                        <tr>
-                                            <td colSpan={6} className="text-muted-foreground p-6 text-center">
+                                        <tr className="block md:table-row">
+                                            <td colSpan={6} className="text-muted-foreground block p-6 text-center md:table-cell">
                                                 壁紙はまだ登録されていません。
                                             </td>
                                         </tr>
                                     )}
                                     {wallpapers.data.map((wallpaper) => (
-                                        <tr key={wallpaper.id} className="border-b last:border-b-0">
-                                            <td className="p-3 whitespace-nowrap">{wallpaper.target_date}</td>
-                                            <td className="p-3">{wallpaper.title ?? '-'}</td>
-                                            <td className="p-3">{wallpaper.art_style ?? '-'}</td>
-                                            <td className="p-3 whitespace-nowrap">
-                                                {wallpaper.prize_vnd === null ? '-' : `${wallpaper.prize_vnd.toLocaleString()} VND`}
+                                        <tr
+                                            key={wallpaper.id}
+                                            className="block space-y-2 border-b p-4 last:border-b-0 md:table-row md:space-y-0 md:p-0"
+                                        >
+                                            <td className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3 md:table-cell md:p-3 md:whitespace-nowrap">
+                                                <span className="text-muted-foreground font-medium md:hidden">対象日</span>
+                                                <span>{wallpaper.target_date}</span>
                                             </td>
-                                            <td className="p-3">
-                                                <span className="bg-secondary text-secondary-foreground inline-flex rounded-full px-2 py-1 text-xs font-medium whitespace-nowrap">
-                                                    {wallpaperStateLabel(wallpaper.state)}
+                                            <td className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3 md:table-cell md:p-3">
+                                                <span className="text-muted-foreground font-medium md:hidden">構図</span>
+                                                <span className="min-w-0 break-words">{wallpaper.title ?? '-'}</span>
+                                            </td>
+                                            <td className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3 md:table-cell md:p-3">
+                                                <span className="text-muted-foreground font-medium md:hidden">画風</span>
+                                                <span className="min-w-0 break-words">{wallpaper.art_style ?? '-'}</span>
+                                            </td>
+                                            <td className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3 md:table-cell md:p-3 md:whitespace-nowrap">
+                                                <span className="text-muted-foreground font-medium md:hidden">賞金</span>
+                                                <span>{wallpaper.prize_vnd === null ? '-' : `${wallpaper.prize_vnd.toLocaleString()} VND`}</span>
+                                            </td>
+                                            <td className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-3 md:table-cell md:p-3">
+                                                <span className="text-muted-foreground font-medium md:hidden">状態</span>
+                                                <span>
+                                                    <span className="bg-secondary text-secondary-foreground inline-flex rounded-full px-2 py-1 text-xs font-medium whitespace-nowrap">
+                                                        {wallpaperStateLabel(wallpaper.state)}
+                                                    </span>
                                                 </span>
                                             </td>
-                                            <td className="p-3">
-                                                <div className="flex justify-end gap-2">
+                                            <td className="border-t pt-3 md:table-cell md:border-t-0 md:p-3">
+                                                <div className="flex flex-wrap justify-end gap-2">
                                                     <Button size="sm" variant="outline" asChild>
                                                         <Link href={route('wallpapers.show', { wallpaper: wallpaper.id })}>詳細</Link>
                                                     </Button>
