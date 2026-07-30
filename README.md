@@ -1,6 +1,6 @@
 # Lucky Wallpaper
 
-過去のNotion実績を参照し、金運をテーマにしたスマートフォン壁紙の構図提案・画像生成・実績登録を行う単一管理者向けシステムです。
+サーバーに保存した過去実績を参照し、金運をテーマにしたスマートフォン壁紙の構図提案・画像生成・実績登録を行う単一管理者向けシステムです。Notion連携は実績情報と画像のバックアップ、およびバックアップからの復元に使用します。
 
 提案は「過去実績との相関に基づく創作上の傾向」であり、宝くじの当選や当選確率の向上を保証しません。
 
@@ -36,6 +36,10 @@ NOTION_TOKEN=
 OPENAI_API_KEY=
 ```
 
+`NOTION_TOKEN`は任意です。未設定でも実績登録、壁紙作成、履歴管理などのサーバー機能は利用できますが、Notionへのバックアップとバックアップからの復元は利用できません。バックアップ成功後は従来どおりサーバー上の画像を削除するため、バックアップ済み画像のダウンロードにはNotion接続が必要です。
+
+復元は前回の成功時刻以降に更新されたNotion実績を対象とし、サーバーに存在する実績は上書きしません。
+
 秘密情報は`.env`以外へ保存しないでください。初回起動後、`/setup`で管理者を1件だけ作成します。パスワードはArgon2idで保存されます。
 
 開発DBへ適用する場合:
@@ -48,12 +52,13 @@ php artisan serve
 
 ## 主要操作
 
-- `POST /notion-syncs`: Notion実績の非同期取り込み
+- `GET /settings/notion-backup`: Notionバックアップと復元の設定画面
+- `POST /notion-syncs`: Notionバックアップから実績情報を非同期復元
 - `POST /wallpaper-analyses`: 高額当選壁紙の傾向分析をOpenAIキューへ登録
 - `POST /wallpapers/proposals`: 対象日の構図提案
 - `POST /wallpapers/{id}/repropose`: 同日の過去案を除外して再提案
 - `POST /wallpapers/{id}/image`: 承認案から画像生成
-- `PUT /wallpapers/{id}/result`: VND賞金を保存しNotion同期
+- `PUT /wallpapers/{id}/result`: VND賞金を保存し、設定済みの場合はNotionへバックアップ
 - `GET /operations/{id}`: 非同期処理の進捗
 - `GET /wallpapers/{id}/download`: 認証済み画像ダウンロード
 

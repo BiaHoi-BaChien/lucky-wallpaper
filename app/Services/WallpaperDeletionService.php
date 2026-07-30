@@ -38,7 +38,7 @@ class WallpaperDeletionService
         $imageDeleted = false;
 
         try {
-            if ($notionPageId !== null && $notionPageId !== '') {
+            if ($this->notion->isConfigured() && $notionPageId !== null && $notionPageId !== '') {
                 $this->notion->trashPage($notionPageId);
                 $notionTrashed = true;
             }

@@ -21,6 +21,11 @@ const sidebarNavItems: NavItem[] = [
         url: route('appearance'),
         icon: null,
     },
+    {
+        title: 'Notionバックアップ',
+        url: route('notion-backup.index'),
+        icon: null,
+    },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
@@ -28,7 +33,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
 
     return (
         <div className="px-4 py-6">
-            <Heading title="アカウント設定" description="パスワード、パスキー、表示設定を管理します" />
+            <Heading title="設定" description="パスワード、パスキー、表示、Notionバックアップを管理します" />
 
             <div className="flex flex-col space-y-8 lg:flex-row lg:space-y-0 lg:space-x-12">
                 <aside className="w-full max-w-xl lg:w-48">

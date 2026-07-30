@@ -138,8 +138,8 @@ cron間隔により、UI操作から処理開始まで最大約1分待つ場合�
 - MySQL接続情報
 - `APP_SETUP_KEY`
 - `PASSKEYS_USER_HANDLE_SECRET`
-- `NOTION_TOKEN`
-- `NOTION_DATA_SOURCE_ID`
+- `NOTION_TOKEN`（Notionバックアップを利用する場合のみ）
+- `NOTION_DATA_SOURCE_ID`（Notionバックアップを利用する場合のみ）
 - `OPENAI_API_KEY`
 - モデル名とタイムアウト
 

@@ -100,10 +100,19 @@ class WallpaperController extends Controller
         return to_route('wallpapers.show', ['wallpaper' => $wallpaper, 'operation' => $run?->id]);
     }
 
-    public function show(Wallpaper $wallpaper): Response
+    public function show(Wallpaper $wallpaper, NotionClient $notion): Response
     {
+        $downloadRequiresNotionConfiguration = $wallpaper->image_path === null
+            && $wallpaper->notion_page_id !== null
+            && ! $notion->isConfigured();
+
         return Inertia::render('wallpapers/show', [
             'wallpaper' => $wallpaper->load(['proposals' => fn ($query) => $query->orderByDesc('sequence')]),
+            'downloadAvailable' => $wallpaper->image_path !== null
+                || ($wallpaper->notion_page_id !== null && $notion->isConfigured()),
+            'downloadUnavailableReason' => $downloadRequiresNotionConfiguration
+                ? '画像はNotionバックアップに保管されています。ダウンロードするにはNOTION_TOKENの設定が必要です。'
+                : null,
             'latestApiRun' => ApiRun::query()
                 ->where('subject_type', $wallpaper->getMorphClass())
                 ->where('subject_id', $wallpaper->id)
@@ -173,6 +182,7 @@ class WallpaperController extends Controller
     public function destroy(
         Wallpaper $wallpaper,
         WallpaperDeletionService $deletionService,
+        NotionClient $notion,
     ): RedirectResponse {
         try {
             $deletionService->delete($wallpaper);
@@ -182,7 +192,9 @@ class WallpaperController extends Controller
             report($exception);
 
             throw ValidationException::withMessages([
-                'delete' => '履歴の削除に失敗しました。Notionまたはストレージの接続を確認して再試行してください。',
+                'delete' => $notion->isConfigured()
+                    ? '履歴の削除に失敗しました。Notionバックアップまたはストレージの接続を確認して再試行してください。'
+                    : '履歴の削除に失敗しました。ストレージの状態を確認して再試行してください。',
             ]);
         }
 
@@ -190,7 +202,7 @@ class WallpaperController extends Controller
             ->with('status', '履歴を削除しました。');
     }
 
-    public function download(Wallpaper $wallpaper): StreamedResponse|HttpResponse
+    public function download(Wallpaper $wallpaper, NotionClient $notion): StreamedResponse|HttpResponse
     {
         if ($wallpaper->image_path !== null) {
             abort_unless(Storage::disk((string) $wallpaper->image_disk)->exists($wallpaper->image_path), 404);
@@ -203,8 +215,13 @@ class WallpaperController extends Controller
         }
 
         abort_if($wallpaper->notion_page_id === null, 404);
-        $page = app(NotionClient::class)->getPage($wallpaper->notion_page_id);
-        $url = app(NotionClient::class)->wallpaperFileUrl($page);
+        abort_unless(
+            $notion->isConfigured(),
+            503,
+            'Notionバックアップを利用するにはNOTION_TOKENの設定が必要です。',
+        );
+        $page = $notion->getPage($wallpaper->notion_page_id);
+        $url = $notion->wallpaperFileUrl($page);
         abort_if($url === null, 404);
         $response = Http::timeout(60)->get($url);
         abort_unless($response->successful(), 502);

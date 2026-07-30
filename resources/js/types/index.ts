@@ -25,6 +25,11 @@ export interface SharedData {
     name: string;
     quote: { message: string; author: string };
     auth: Auth;
+    integrations: {
+        notion: {
+            configured: boolean;
+        };
+    };
     flash: {
         operationId?: string;
         status?: string;

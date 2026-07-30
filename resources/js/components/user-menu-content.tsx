@@ -24,7 +24,7 @@ export function UserMenuContent({ user }: UserMenuContentProps) {
                 <DropdownMenuItem asChild>
                     <Link className="block w-full" href={route('password.edit')} as="button" prefetch onClick={cleanup}>
                         <Settings className="mr-2" />
-                        アカウント設定
+                        設定
                     </Link>
                 </DropdownMenuItem>
             </DropdownMenuGroup>
