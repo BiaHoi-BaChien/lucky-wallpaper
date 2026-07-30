@@ -225,10 +225,12 @@ export default function ShowWallpaper({
                         </AlertDescription>
                     </Alert>
                 )}
-                <div className="flex flex-wrap justify-end gap-3 border-t pt-6">
-                    {localImageAvailable && <DeleteWallpaperImageDialog wallpaper={wallpaper} />}
-                    <DeleteWallpaperDialog wallpaper={wallpaper} label="履歴を削除" />
-                </div>
+                {!active && (
+                    <div className="flex flex-wrap justify-end gap-3 border-t pt-6">
+                        {localImageAvailable && <DeleteWallpaperImageDialog wallpaper={wallpaper} />}
+                        <DeleteWallpaperDialog wallpaper={wallpaper} label="履歴を削除" />
+                    </div>
+                )}
             </div>
         </AppLayout>
     );
