@@ -71,7 +71,7 @@ class GenerateCompositionProposal implements ShouldQueue
 
         $result = $openAi->structured(
             $run,
-            $this->instructions(),
+            $this->instructions($wallpaper->target_date->format('Y年n月j日')),
             $input,
             OpenAiClient::PROPOSAL_SCHEMA,
             'wallpaper_composition',
@@ -111,10 +111,12 @@ class GenerateCompositionProposal implements ShouldQueue
         }
     }
 
-    private function instructions(): string
+    private function instructions(string $targetDate): string
     {
-        return <<<'PROMPT'
+        return <<<PROMPT
 あなたは金運をテーマにしたスマートフォン壁紙のアートディレクターです。
+これは{$targetDate}用のスマートフォン壁紙です。
+対象日に使用することを前提に、入力された暦情報を反映した構図を提案してください。
 出力は過去実績との相関に基づく創作上の提案であり、宝くじ当選や確率向上を保証してはいけません。
 historical_analysis_markdown の傾向、反例、注意点、活用指針を構図検討に反映してください。
 画風は連続利用を避け、絵画、実写写真、彫刻写真など幅広くローテーションしてください。
