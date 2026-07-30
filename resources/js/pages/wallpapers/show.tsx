@@ -5,7 +5,7 @@ import { Operation, useOperation } from '@/hooks/use-operation';
 import AppLayout from '@/layouts/app-layout';
 import { proposalStatusLabel, wallpaperStateLabel } from '@/lib/wallpaper-state';
 import { Head, router } from '@inertiajs/react';
-import { LoaderCircle } from 'lucide-react';
+import { Download, ImagePlus, LoaderCircle, RefreshCw } from 'lucide-react';
 
 interface Proposal {
     id: number;
@@ -38,18 +38,22 @@ interface Wallpaper {
 export default function ShowWallpaper({
     wallpaper,
     latestApiRun,
-    downloadAvailable,
+    imageAvailable,
     downloadUnavailableReason,
 }: {
     wallpaper: Wallpaper;
     latestApiRun: Operation | null;
-    downloadAvailable: boolean;
+    imageAvailable: boolean;
     downloadUnavailableReason: string | null;
 }) {
     const { operation } = useOperation(latestApiRun);
     const active = operation && ['queued', 'running'].includes(operation.status);
     const current = wallpaper.proposals.find((proposal) => proposal.status === 'proposed') ?? wallpaper.proposals[0];
     const details = current ?? (hasCompositionDetails(wallpaper) ? wallpaper : null);
+    const canGenerateFromDetails =
+        !imageAvailable && !downloadUnavailableReason && (current === undefined || ['proposed', 'approved'].includes(current.status));
+    const generateImage = () =>
+        router.post(route('wallpapers.image', { wallpaper: wallpaper.id }), current ? { proposal_id: current.id } : {}, { preserveScroll: true });
 
     return (
         <AppLayout
@@ -86,53 +90,59 @@ export default function ShowWallpaper({
                                 </p>
                             )}
                         </CardHeader>
-                        <CardContent className="space-y-5">
-                            <Section title={!current && details.overview === details.composition ? '構図の詳細' : '概要'} body={details.overview} />
-                            {details.composition !== details.overview && <Section title="配置" body={details.composition} />}
-                            <Section title="色彩・五行" body={details.color_wu_xing} />
-                            <Section title="象徴意図" body={details.symbolism} />
-                            <div className="flex flex-wrap gap-3">
-                                {current?.status === 'proposed' && (
-                                    <>
-                                        <Button
-                                            disabled={Boolean(active)}
-                                            onClick={() =>
-                                                router.post(route('wallpapers.image', { wallpaper: wallpaper.id }), { proposal_id: current.id })
-                                            }
-                                        >
-                                            この構図で画像を作成
+                        <CardContent>
+                            <div className={imageAvailable ? 'grid items-start gap-6 lg:grid-cols-[minmax(16rem,28rem)_minmax(0,1fr)]' : undefined}>
+                                {imageAvailable && (
+                                    <figure className="mx-auto w-full max-w-md">
+                                        <div className="bg-muted aspect-[9/16] overflow-hidden rounded-md border">
+                                            <img
+                                                src={route('wallpapers.preview', { wallpaper: wallpaper.id })}
+                                                alt={`${wallpaper.target_date}の壁紙「${details.title || '構図の詳細'}」のプレビュー`}
+                                                className="size-full object-contain"
+                                            />
+                                        </div>
+                                        <figcaption className="text-muted-foreground mt-2 text-center text-sm">生成済み壁紙のプレビュー</figcaption>
+                                        <Button variant="outline" className="mt-3 w-full" asChild>
+                                            <a href={route('wallpapers.download', { wallpaper: wallpaper.id })}>
+                                                <Download aria-hidden="true" />
+                                                画像をダウンロード
+                                            </a>
                                         </Button>
-                                        <Button
-                                            variant="outline"
-                                            disabled={Boolean(active)}
-                                            onClick={() => router.post(route('wallpapers.repropose', { wallpaper: wallpaper.id }))}
-                                        >
-                                            再提案
-                                        </Button>
-                                    </>
+                                    </figure>
                                 )}
-                                {current?.status === 'approved' && wallpaper.state !== 'generated' && (
-                                    <Button
-                                        disabled={Boolean(active)}
-                                        onClick={() =>
-                                            router.post(route('wallpapers.image', { wallpaper: wallpaper.id }), { proposal_id: current.id })
-                                        }
-                                    >
-                                        画像生成を再試行
-                                    </Button>
-                                )}
-                                {['generated', 'archived', 'result_synced'].includes(wallpaper.state) && downloadAvailable && (
-                                    <Button variant="outline" asChild>
-                                        <a href={route('wallpapers.download', { wallpaper: wallpaper.id })}>画像をダウンロード</a>
-                                    </Button>
-                                )}
+                                <div className="space-y-5">
+                                    <Section
+                                        title={!current && details.overview === details.composition ? '構図の詳細' : '概要'}
+                                        body={details.overview}
+                                    />
+                                    {details.composition !== details.overview && <Section title="配置" body={details.composition} />}
+                                    <Section title="色彩・五行" body={details.color_wu_xing} />
+                                    <Section title="象徴意図" body={details.symbolism} />
+                                    <div className="flex flex-wrap gap-3">
+                                        {canGenerateFromDetails && (
+                                            <Button disabled={Boolean(active)} onClick={generateImage}>
+                                                {current?.status === 'proposed' ? <ImagePlus aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
+                                                {current?.status === 'proposed' ? 'この構図で画像を作成' : '画像を再生成'}
+                                            </Button>
+                                        )}
+                                        {current?.status === 'proposed' && (
+                                            <Button
+                                                variant="outline"
+                                                disabled={Boolean(active)}
+                                                onClick={() => router.post(route('wallpapers.repropose', { wallpaper: wallpaper.id }))}
+                                            >
+                                                再提案
+                                            </Button>
+                                        )}
+                                    </div>
+                                    {downloadUnavailableReason && (
+                                        <Alert variant="warning">
+                                            <AlertTitle>画像を表示できません。</AlertTitle>
+                                            <AlertDescription>{downloadUnavailableReason}</AlertDescription>
+                                        </Alert>
+                                    )}
+                                </div>
                             </div>
-                            {downloadUnavailableReason && (
-                                <Alert variant="warning">
-                                    <AlertTitle>画像をダウンロードできません。</AlertTitle>
-                                    <AlertDescription>{downloadUnavailableReason}</AlertDescription>
-                                </Alert>
-                            )}
                         </CardContent>
                     </Card>
                 )}
