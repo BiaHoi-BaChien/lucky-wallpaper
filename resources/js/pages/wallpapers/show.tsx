@@ -2,13 +2,14 @@ import InputError from '@/components/input-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { DeleteWallpaperDialog, DeleteWallpaperImageDialog } from '@/components/wallpaper-delete-dialogs';
 import { Operation, useOperation } from '@/hooks/use-operation';
 import AppLayout from '@/layouts/app-layout';
 import { proposalStatusLabel, wallpaperStateLabel } from '@/lib/wallpaper-state';
 import { SharedData } from '@/types';
 import { Head, router, usePage } from '@inertiajs/react';
-import { ArchiveRestore, Download, ImagePlus, LoaderCircle } from 'lucide-react';
+import { ArchiveRestore, Check, Copy, Download, ImagePlus, LoaderCircle } from 'lucide-react';
 import { useState } from 'react';
 
 interface Proposal {
@@ -59,6 +60,8 @@ export default function ShowWallpaper({
     const active = operation && ['queued', 'running'].includes(operation.status);
     const current = wallpaper.proposals.find((proposal) => proposal.status === 'proposed') ?? wallpaper.proposals[0];
     const details = current ?? (hasCompositionDetails(wallpaper) ? wallpaper : null);
+    const displayedTitle = details?.conclusion || details?.title || '構図の詳細';
+    const compositionDetails = details ? formatCompositionDetails(details) : '';
     const canCreateImage = !localImageAvailable && current?.status === 'proposed';
     const canRestoreImage = !localImageAvailable && current?.status !== 'proposed';
     const generateImage = () =>
@@ -107,7 +110,10 @@ export default function ShowWallpaper({
                 {details && (
                     <Card>
                         <CardHeader>
-                            <CardTitle>{details.conclusion || details.title || '構図の詳細'}</CardTitle>
+                            <div className="flex items-start justify-between gap-3">
+                                <CardTitle className="min-w-0 break-words">{displayedTitle}</CardTitle>
+                                <CopyButton value={displayedTitle} label="壁紙のタイトル" />
+                            </div>
                             {current && (
                                 <p className="text-muted-foreground text-sm">
                                     案 #{current.sequence}・{proposalStatusLabel(current.status)}
@@ -139,8 +145,12 @@ export default function ShowWallpaper({
                                     </figure>
                                 )}
                                 <div className="space-y-5">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <h2 className="font-semibold">構図の詳細</h2>
+                                        {compositionDetails !== '' && <CopyButton value={compositionDetails} label="構図の詳細" />}
+                                    </div>
                                     <Section
-                                        title={!current && details.overview === details.composition ? '構図の詳細' : '概要'}
+                                        title={!current && details.overview === details.composition ? undefined : '概要'}
                                         body={details.overview}
                                     />
                                     {details.composition !== details.overview && <Section title="配置" body={details.composition} />}
@@ -240,15 +250,59 @@ function hasCompositionDetails(wallpaper: Wallpaper): boolean {
     );
 }
 
-function Section({ title, body }: { title: string; body: string | null }) {
+function formatCompositionDetails(details: Proposal | Wallpaper): string {
+    const sections = [
+        details.overview?.trim() ? `${details.overview === details.composition ? '構図の詳細' : '概要'}\n${details.overview.trim()}` : '',
+        details.composition?.trim() && details.composition !== details.overview ? `配置\n${details.composition.trim()}` : '',
+        details.color_wu_xing?.trim() ? `色彩・五行\n${details.color_wu_xing.trim()}` : '',
+        details.symbolism?.trim() ? `象徴意図\n${details.symbolism.trim()}` : '',
+    ];
+
+    return sections.filter((section) => section !== '').join('\n\n');
+}
+
+function Section({ title, body }: { title?: string; body: string | null }) {
     if (body === null || body.trim() === '') {
         return null;
     }
 
     return (
         <section>
-            <h2 className="mb-1 font-semibold">{title}</h2>
+            {title && <h3 className="mb-1 font-semibold">{title}</h3>}
             <p className="text-sm leading-6 whitespace-pre-wrap">{body}</p>
         </section>
+    );
+}
+
+function CopyButton({ value, label }: { value: string; label: string }) {
+    const [status, setStatus] = useState<'idle' | 'copied' | 'error'>('idle');
+    const actionLabel =
+        status === 'copied' ? `${label}をコピーしました` : status === 'error' ? `${label}をコピーできませんでした` : `${label}をコピー`;
+
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(value);
+            setStatus('copied');
+        } catch {
+            setStatus('error');
+        }
+    };
+
+    return (
+        <>
+            <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button type="button" variant="ghost" size="icon" className="-m-2 shrink-0" aria-label={`${label}をコピー`} onClick={copy}>
+                            {status === 'copied' ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{actionLabel}</TooltipContent>
+                </Tooltip>
+            </TooltipProvider>
+            <span className="sr-only" role="status" aria-live="polite">
+                {status === 'idle' ? '' : actionLabel}
+            </span>
+        </>
     );
 }
