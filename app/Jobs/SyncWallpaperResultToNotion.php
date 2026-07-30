@@ -71,15 +71,16 @@ class SyncWallpaperResultToNotion implements ShouldQueue
             throw new ExternalApiException('notion_file_verification_failed', true);
         }
 
-        if ($hadLocalImage) {
+        $deleteLocalImage = $hadLocalImage && (bool) config('lucky.image.delete_after_notion_backup');
+        if ($deleteLocalImage) {
             Storage::disk((string) $wallpaper->image_disk)->delete((string) $wallpaper->image_path);
         }
 
         $wallpaper->update([
-            'image_disk' => $hadLocalImage ? null : $wallpaper->image_disk,
-            'image_path' => $hadLocalImage ? null : $wallpaper->image_path,
-            'image_bytes' => $hadLocalImage ? null : $wallpaper->image_bytes,
-            'state' => $hadLocalImage ? 'archived' : 'result_synced',
+            'image_disk' => $deleteLocalImage ? null : $wallpaper->image_disk,
+            'image_path' => $deleteLocalImage ? null : $wallpaper->image_path,
+            'image_bytes' => $deleteLocalImage ? null : $wallpaper->image_bytes,
+            'state' => $deleteLocalImage ? 'archived' : 'result_synced',
             'result_synced_at' => now(),
         ]);
         $run->update([

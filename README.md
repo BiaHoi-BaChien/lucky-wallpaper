@@ -34,9 +34,10 @@ APP_SETUP_KEY=十分に長いランダム値
 PASSKEYS_USER_HANDLE_SECRET=APP_KEYとは別の十分に長いランダム値
 NOTION_TOKEN=
 OPENAI_API_KEY=
+WALLPAPER_DELETE_AFTER_NOTION_BACKUP=true
 ```
 
-`NOTION_TOKEN`は任意です。未設定でも実績登録、壁紙作成、履歴管理などのサーバー機能は利用できますが、Notionへのバックアップとバックアップからの復元は利用できません。バックアップ成功後は従来どおりサーバー上の画像を削除するため、バックアップ済み画像のダウンロードにはNotion接続が必要です。
+`NOTION_TOKEN`は任意です。未設定でも実績登録、壁紙作成、履歴管理などのサーバー機能は利用できますが、Notionへのバックアップとバックアップからの復元は利用できません。`WALLPAPER_DELETE_AFTER_NOTION_BACKUP=true`の場合は、バックアップ成功後にサーバー上の画像を削除するため、バックアップ済み画像のダウンロードにはNotion接続が必要です。`false`にすると、バックアップ後もサーバー上の画像を保持します。
 
 復元は前回の成功時刻以降に更新されたNotion実績を対象とし、サーバーに存在する実績は上書きしません。
 

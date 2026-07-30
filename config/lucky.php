@@ -32,5 +32,6 @@ return [
         'jpeg_quality' => 85,
         'disk' => env('WALLPAPER_DISK', 'local'),
         'directory' => 'wallpapers',
+        'delete_after_notion_backup' => env('WALLPAPER_DELETE_AFTER_NOTION_BACKUP', true),
     ],
 ];
