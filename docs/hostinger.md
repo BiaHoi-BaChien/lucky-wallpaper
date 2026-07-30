@@ -12,7 +12,7 @@ Hostingerの仕様に合わせ、Laravel本体と`.env`をこのディレクト�
 
 ## 事前確認
 
-- PHP 8.2以上
+- PHP 8.3以上
 - MySQL
 - HTTPS
 - PHP拡張: `curl`, `gd`, `mbstring`, `openssl`, `pdo_mysql`
