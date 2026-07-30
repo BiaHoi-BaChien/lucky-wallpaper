@@ -4,12 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Operation, useOperation } from '@/hooks/use-operation';
 import AppLayout from '@/layouts/app-layout';
 import { wallpaperStateLabel } from '@/lib/wallpaper-state';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
-import { LoaderCircle } from 'lucide-react';
-import { FormEvent, ReactNode } from 'react';
+import { ChevronDown, LoaderCircle } from 'lucide-react';
+import { FormEvent, ReactNode, useState } from 'react';
 
 interface Existing {
     id: number;
@@ -49,6 +50,7 @@ export default function CreateWallpaper({
     const page = usePage<{ errors: { analysis?: string; proposal?: string } }>();
     const analysisActive = ['queued', 'running'].includes(analysisOperation?.status ?? '');
     const analysisIsLatest = analysis?.is_latest ?? false;
+    const [analysisExpanded, setAnalysisExpanded] = useState(true);
 
     const submit = (event: FormEvent) => {
         event.preventDefault();
@@ -66,53 +68,78 @@ export default function CreateWallpaper({
             <Head title="壁紙作成" />
             <div className="max-w-4xl space-y-6 p-4">
                 <Card>
-                    <CardHeader>
-                        <CardTitle>高額当選壁紙の傾向分析</CardTitle>
-                        <CardDescription>当選金額が登録された壁紙履歴を比較し、上位25%の構図傾向をMarkdownで保存します。</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="flex flex-wrap items-center gap-3">
-                            <Button
-                                type="button"
-                                variant={analysisIsLatest ? 'outline' : 'default'}
-                                disabled={analysisActive || analysisIsLatest || analysisForm.processing}
-                                onClick={analyze}
-                            >
-                                {analysisActive && <LoaderCircle className="size-4 animate-spin" />}
-                                {analysisIsLatest ? '既に最新です' : analysisActive ? '傾向分析中' : '傾向分析'}
-                            </Button>
-                            {analysis && (
-                                <span className="text-muted-foreground text-sm">
-                                    対象 {analysis.statistics?.records ?? 0}件
-                                    {analysis.created_at && `・更新 ${new Date(analysis.created_at).toLocaleString('ja-JP')}`}
-                                </span>
+                    <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
+                        <div className="min-w-0 space-y-1.5">
+                            <CardTitle>高額当選壁紙の傾向分析</CardTitle>
+                            {analysisExpanded && (
+                                <CardDescription>当選金額が登録された壁紙履歴を比較し、上位25%の構図傾向をMarkdownで保存します。</CardDescription>
                             )}
                         </div>
-
-                        <InputError message={page.props.errors.analysis} />
-
-                        {analysisOperation?.status === 'failed' && (
-                            <Alert variant="destructive">
-                                <AlertTitle>傾向分析に失敗しました。</AlertTitle>
-                                <AlertDescription>エラーコード: {analysisOperation.error_code}</AlertDescription>
-                            </Alert>
-                        )}
-
-                        {analysis && !analysisIsLatest && !analysisActive && (
-                            <Alert variant="warning">
-                                <AlertTitle>壁紙履歴が更新されています。</AlertTitle>
-                                <AlertDescription>「傾向分析」を実行して、最新の履歴を反映してください。</AlertDescription>
-                            </Alert>
-                        )}
-
-                        {analysis ? (
-                            <div className="bg-muted/50 rounded-lg border p-4">
-                                <MarkdownAnalysis markdown={analysis.markdown} />
+                        <TooltipProvider delayDuration={300}>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="-m-2 shrink-0"
+                                        aria-expanded={analysisExpanded}
+                                        aria-controls="wallpaper-analysis-content"
+                                        aria-label={analysisExpanded ? '傾向分析を閉じる' : '傾向分析を開く'}
+                                        onClick={() => setAnalysisExpanded((expanded) => !expanded)}
+                                    >
+                                        <ChevronDown className={`transition-transform duration-200 ${analysisExpanded ? 'rotate-180' : ''}`} />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>{analysisExpanded ? '傾向分析を閉じる' : '傾向分析を開く'}</TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    </CardHeader>
+                    {analysisExpanded && (
+                        <CardContent id="wallpaper-analysis-content" className="space-y-4">
+                            <div className="flex flex-wrap items-center gap-3">
+                                <Button
+                                    type="button"
+                                    variant={analysisIsLatest ? 'outline' : 'default'}
+                                    disabled={analysisActive || analysisIsLatest || analysisForm.processing}
+                                    onClick={analyze}
+                                >
+                                    {analysisActive && <LoaderCircle className="size-4 animate-spin" />}
+                                    {analysisIsLatest ? '既に最新です' : analysisActive ? '傾向分析中' : '傾向分析'}
+                                </Button>
+                                {analysis && (
+                                    <span className="text-muted-foreground text-sm">
+                                        対象 {analysis.statistics?.records ?? 0}件
+                                        {analysis.created_at && `・更新 ${new Date(analysis.created_at).toLocaleString('ja-JP')}`}
+                                    </span>
+                                )}
                             </div>
-                        ) : (
-                            !analysisActive && <p className="text-muted-foreground text-sm">分析結果はまだありません。</p>
-                        )}
-                    </CardContent>
+
+                            <InputError message={page.props.errors.analysis} />
+
+                            {analysisOperation?.status === 'failed' && (
+                                <Alert variant="destructive">
+                                    <AlertTitle>傾向分析に失敗しました。</AlertTitle>
+                                    <AlertDescription>エラーコード: {analysisOperation.error_code}</AlertDescription>
+                                </Alert>
+                            )}
+
+                            {analysis && !analysisIsLatest && !analysisActive && (
+                                <Alert variant="warning">
+                                    <AlertTitle>壁紙履歴が更新されています。</AlertTitle>
+                                    <AlertDescription>「傾向分析」を実行して、最新の履歴を反映してください。</AlertDescription>
+                                </Alert>
+                            )}
+
+                            {analysis ? (
+                                <div className="bg-muted/50 rounded-lg border p-4">
+                                    <MarkdownAnalysis markdown={analysis.markdown} />
+                                </div>
+                            ) : (
+                                !analysisActive && <p className="text-muted-foreground text-sm">分析結果はまだありません。</p>
+                            )}
+                        </CardContent>
+                    )}
                 </Card>
 
                 <Card>
