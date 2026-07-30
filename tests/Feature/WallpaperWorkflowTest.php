@@ -154,7 +154,27 @@ class WallpaperWorkflowTest extends TestCase
         $this->actingAs($user)->get("/wallpapers/{$wallpaper->id}")
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->component('wallpapers/show', false)
-                ->where('imageAvailable', true));
+                ->where('localImageAvailable', true)
+                ->where('downloadAvailable', true));
+    }
+
+    public function test_missing_local_image_is_not_displayed_as_a_preview(): void
+    {
+        config(['lucky.notion.token' => 'test']);
+        Storage::fake('local');
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'image_disk' => 'local',
+            'image_path' => 'wallpapers/missing.jpg',
+            'notion_page_id' => 'notion-page-id',
+        ]);
+
+        $this->actingAs($user)->get("/wallpapers/{$wallpaper->id}")
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('wallpapers/show', false)
+                ->where('localImageAvailable', false)
+                ->where('downloadAvailable', true)
+                ->where('downloadUnavailableReason', null));
     }
 
     public function test_imported_composition_details_can_queue_image_regeneration_without_a_proposal(): void

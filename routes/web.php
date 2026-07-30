@@ -28,8 +28,10 @@ Route::middleware(['auth'])->group(function () {
     Route::get('wallpapers/{wallpaper}', [WallpaperController::class, 'show'])->name('wallpapers.show');
     Route::post('wallpapers/{wallpaper}/repropose', [WallpaperController::class, 'repropose'])->name('wallpapers.repropose');
     Route::post('wallpapers/{wallpaper}/image', [WallpaperController::class, 'image'])->name('wallpapers.image');
+    Route::post('wallpapers/{wallpaper}/restore-image', [WallpaperController::class, 'restoreImage'])->name('wallpapers.image.restore');
     Route::get('wallpapers/{wallpaper}/preview', [WallpaperController::class, 'preview'])->name('wallpapers.preview');
     Route::get('wallpapers/{wallpaper}/download', [WallpaperController::class, 'download'])->name('wallpapers.download');
+    Route::delete('wallpapers/{wallpaper}/image', [WallpaperController::class, 'destroyImage'])->name('wallpapers.image.destroy');
     Route::delete('wallpapers/{wallpaper}', [WallpaperController::class, 'destroy'])->name('wallpapers.destroy');
 
     Route::get('results', [ResultController::class, 'index'])->name('results.index');

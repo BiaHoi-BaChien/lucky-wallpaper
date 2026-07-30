@@ -10,6 +10,7 @@ use App\Models\Wallpaper;
 use App\Services\HistoricalAnalysisService;
 use App\Services\NotionClient;
 use App\Services\WallpaperDeletionService;
+use App\Services\WallpaperImageRestoreService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -109,10 +110,11 @@ class WallpaperController extends Controller
 
         return Inertia::render('wallpapers/show', [
             'wallpaper' => $wallpaper->load(['proposals' => fn ($query) => $query->orderByDesc('sequence')]),
-            'imageAvailable' => $localImageAvailable
+            'localImageAvailable' => $localImageAvailable,
+            'downloadAvailable' => $localImageAvailable
                 || ($wallpaper->notion_page_id !== null && $notion->isConfigured()),
             'downloadUnavailableReason' => $downloadRequiresNotionConfiguration
-                ? '画像はNotionバックアップに保管されています。プレビューまたはダウンロードするにはNOTION_TOKENの設定が必要です。'
+                ? '画像はNotionバックアップに保管されています。ダウンロードするにはNOTION_TOKENの設定が必要です。'
                 : null,
             'latestApiRun' => ApiRun::query()
                 ->where('subject_type', $wallpaper->getMorphClass())
@@ -226,6 +228,54 @@ class WallpaperController extends Controller
 
         return to_route('wallpapers.index')
             ->with('status', '履歴を削除しました。');
+    }
+
+    public function destroyImage(
+        Wallpaper $wallpaper,
+        WallpaperDeletionService $deletionService,
+    ): RedirectResponse {
+        try {
+            $deleted = $deletionService->deleteImage($wallpaper);
+        } catch (ValidationException $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            report($exception);
+
+            throw ValidationException::withMessages([
+                'deleteImage' => '画像ファイルの削除に失敗しました。ストレージの状態を確認して再試行してください。',
+            ]);
+        }
+
+        return back()->with(
+            'status',
+            $deleted
+                ? '画像ファイルを削除しました。履歴データは保持されています。'
+                : '画像ファイルは既に存在しません。履歴データは保持されています。',
+        );
+    }
+
+    public function restoreImage(
+        Wallpaper $wallpaper,
+        WallpaperImageRestoreService $restoreService,
+    ): RedirectResponse {
+        try {
+            $restored = $restoreService->restore($wallpaper);
+        } catch (ValidationException $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            report($exception);
+
+            throw ValidationException::withMessages([
+                'restoreImage' => 'Notionから画像ファイルを復元できませんでした。Notionバックアップと接続設定を確認して再試行してください。',
+            ]);
+        }
+
+        return back()->with(
+            'status',
+            $restored
+                ? 'Notionから画像ファイルを復元しました。'
+                : '画像ファイルは既にサーバーに存在します。',
+        );
     }
 
     public function download(Wallpaper $wallpaper, NotionClient $notion): StreamedResponse|HttpResponse

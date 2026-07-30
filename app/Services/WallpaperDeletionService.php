@@ -16,6 +16,44 @@ class WallpaperDeletionService
 {
     public function __construct(private readonly NotionClient $notion) {}
 
+    public function deleteImage(Wallpaper $wallpaper): bool
+    {
+        $this->ensureNoActiveProcesses($wallpaper, 'deleteImage');
+
+        $imagePath = $wallpaper->image_path;
+        if ($imagePath === null) {
+            return false;
+        }
+
+        $disk = Storage::disk(
+            $wallpaper->image_disk ?: (string) config('filesystems.default'),
+        );
+        if (! $disk->exists($imagePath)) {
+            $this->clearImageMetadata($wallpaper);
+
+            return false;
+        }
+
+        $imageBytes = $disk->get($imagePath);
+        if (! $disk->delete($imagePath)) {
+            throw new RuntimeException('wallpaper_image_delete_failed');
+        }
+
+        try {
+            $this->clearImageMetadata($wallpaper);
+        } catch (Throwable $exception) {
+            try {
+                $disk->put($imagePath, $imageBytes);
+            } catch (Throwable $restoreException) {
+                report($restoreException);
+            }
+
+            throw $exception;
+        }
+
+        return true;
+    }
+
     public function delete(Wallpaper $wallpaper): void
     {
         $this->ensureNoActiveProcesses($wallpaper);
@@ -83,7 +121,7 @@ class WallpaperDeletionService
         }
     }
 
-    private function ensureNoActiveProcesses(Wallpaper $wallpaper): void
+    private function ensureNoActiveProcesses(Wallpaper $wallpaper, string $errorKey = 'delete'): void
     {
         $hasActiveApiRun = ApiRun::query()
             ->where('subject_type', $wallpaper->getMorphClass())
@@ -97,8 +135,19 @@ class WallpaperDeletionService
 
         if ($hasActiveApiRun || $hasActiveSyncRun) {
             throw ValidationException::withMessages([
-                'delete' => '処理中の履歴は削除できません。処理完了後に再試行してください。',
+                $errorKey => '処理中の履歴は削除できません。処理完了後に再試行してください。',
             ]);
         }
+    }
+
+    private function clearImageMetadata(Wallpaper $wallpaper): void
+    {
+        $wallpaper->update([
+            'image_disk' => null,
+            'image_path' => null,
+            'image_mime' => null,
+            'image_bytes' => null,
+            'image_sha256' => null,
+        ]);
     }
 }
