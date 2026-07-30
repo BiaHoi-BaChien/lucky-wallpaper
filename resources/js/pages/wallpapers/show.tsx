@@ -52,7 +52,7 @@ export default function ShowWallpaper({
     downloadAvailable: boolean;
     downloadUnavailableReason: string | null;
 }) {
-    const { flash, integrations } = usePage<SharedData>().props;
+    const { flash } = usePage<SharedData>().props;
     const [restoring, setRestoring] = useState(false);
     const [restoreError, setRestoreError] = useState<string>();
     const { operation } = useOperation(latestApiRun);
@@ -227,7 +227,7 @@ export default function ShowWallpaper({
                 )}
                 <div className="flex flex-wrap justify-end gap-3 border-t pt-6">
                     {localImageAvailable && <DeleteWallpaperImageDialog wallpaper={wallpaper} />}
-                    <DeleteWallpaperDialog wallpaper={wallpaper} notionConfigured={integrations.notion.configured} label="履歴を削除" />
+                    <DeleteWallpaperDialog wallpaper={wallpaper} label="履歴を削除" />
                 </div>
             </div>
         </AppLayout>

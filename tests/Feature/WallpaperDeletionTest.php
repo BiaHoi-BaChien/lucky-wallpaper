@@ -7,9 +7,7 @@ use App\Models\ApiRun;
 use App\Models\SyncRun;
 use App\Models\User;
 use App\Models\Wallpaper;
-use App\Services\NotionClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -112,13 +110,11 @@ class WallpaperDeletionTest extends TestCase
         ]);
     }
 
-    public function test_wallpaper_history_deletes_database_records_image_and_notion_page(): void
+    public function test_wallpaper_history_deletes_database_records_and_image_without_deleting_notion_page(): void
     {
         config(['lucky.notion.token' => 'test']);
         Storage::fake('local');
-        Http::fake([
-            'api.notion.com/v1/pages/notion-page-id' => Http::response(['id' => 'notion-page-id']),
-        ]);
+        Http::preventStrayRequests();
         $user = User::factory()->create();
         $wallpaper = Wallpaper::factory()->create([
             'notion_page_id' => 'notion-page-id',
@@ -174,38 +170,7 @@ class WallpaperDeletionTest extends TestCase
             'status' => 'invalidated',
         ]);
         Storage::disk('local')->assertMissing('wallpapers/delete-me.jpg');
-        Http::assertSent(function (Request $request): bool {
-            return $request->method() === 'PATCH'
-                && $request->url() === 'https://api.notion.com/v1/pages/notion-page-id'
-                && $request->data() === ['in_trash' => true];
-        });
-        Http::assertSentCount(1);
-    }
-
-    public function test_notion_failure_keeps_database_record_and_image(): void
-    {
-        config(['lucky.notion.token' => 'test']);
-        Storage::fake('local');
-        Http::fake([
-            'api.notion.com/v1/pages/notion-page-id' => Http::response([], 403),
-        ]);
-        $user = User::factory()->create();
-        $wallpaper = Wallpaper::factory()->create([
-            'notion_page_id' => 'notion-page-id',
-            'image_disk' => 'local',
-            'image_path' => 'wallpapers/keep-me.jpg',
-        ]);
-        Storage::disk('local')->put('wallpapers/keep-me.jpg', 'image-bytes');
-
-        $this->actingAs($user)
-            ->from('/wallpapers')
-            ->delete("/wallpapers/{$wallpaper->id}")
-            ->assertRedirect('/wallpapers')
-            ->assertSessionHasErrors('delete');
-
-        $this->assertDatabaseHas('wallpapers', ['id' => $wallpaper->id]);
-        Storage::disk('local')->assertExists('wallpapers/keep-me.jpg');
-        Http::assertSentCount(1);
+        Http::assertNothingSent();
     }
 
     public function test_wallpaper_with_active_process_cannot_be_deleted(): void
@@ -236,21 +201,5 @@ class WallpaperDeletionTest extends TestCase
 
         $this->assertDatabaseHas('wallpapers', ['id' => $wallpaper->id]);
         Http::assertNothingSent();
-    }
-
-    public function test_notion_page_can_be_restored_from_trash(): void
-    {
-        config(['lucky.notion.token' => 'test']);
-        Http::fake([
-            'api.notion.com/v1/pages/page-id' => Http::response(['id' => 'page-id']),
-        ]);
-
-        app(NotionClient::class)->restorePage('page-id');
-
-        Http::assertSent(function (Request $request): bool {
-            return $request->method() === 'PATCH'
-                && $request->data() === ['in_trash' => false]
-                && $request->header('Notion-Version') === ['2026-03-11'];
-        });
     }
 }

@@ -19,15 +19,7 @@ interface WallpaperReference {
     target_date: string;
 }
 
-export function DeleteWallpaperDialog({
-    wallpaper,
-    notionConfigured,
-    label = '削除',
-}: {
-    wallpaper: WallpaperReference;
-    notionConfigured: boolean;
-    label?: string;
-}) {
+export function DeleteWallpaperDialog({ wallpaper, label = '削除' }: { wallpaper: WallpaperReference; label?: string }) {
     const [open, setOpen] = useState(false);
     const [processing, setProcessing] = useState(false);
     const [deleteError, setDeleteError] = useState<string>();
@@ -68,9 +60,7 @@ export function DeleteWallpaperDialog({
                     <DialogTitle>この壁紙履歴を削除しますか？</DialogTitle>
                     <DialogDescription>
                         {wallpaper.target_date}
-                        {notionConfigured
-                            ? 'の履歴を削除します。サーバー上のデータベースレコードと画像ファイルは完全に削除され、Notionバックアップはゴミ箱へ移動します。この画面からは元に戻せません。'
-                            : 'の履歴をサーバーから削除します。サーバー上のデータベースレコードと画像ファイルは完全に削除されます。Notionバックアップは変更されません。この画面からは元に戻せません。'}
+                        の履歴をサーバーから削除します。サーバー上のデータベースレコードと画像ファイルは完全に削除されます。Notionバックアップは変更されません。この画面からは元に戻せません。
                     </DialogDescription>
                 </DialogHeader>
                 <InputError message={deleteError} />
