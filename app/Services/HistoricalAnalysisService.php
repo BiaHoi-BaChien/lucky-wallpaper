@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\ExternalApiException;
 use App\Models\AnalysisSnapshot;
 use App\Models\ApiRun;
 use App\Models\Wallpaper;
@@ -11,23 +12,44 @@ class HistoricalAnalysisService
 {
     public function __construct(private readonly OpenAiClient $openAi) {}
 
-    public function getOrCreate(Wallpaper $subject): AnalysisSnapshot
+    public function currentDataHash(): string
     {
-        $records = Wallpaper::query()
+        return $this->dataHash($this->records());
+    }
+
+    public function currentSnapshot(): ?AnalysisSnapshot
+    {
+        return AnalysisSnapshot::query()
+            ->where('data_hash', $this->currentDataHash())
+            ->where('prompt_version', config('lucky.openai.prompt_version'))
+            ->where('status', 'succeeded')
+            ->latest()
+            ->first();
+    }
+
+    public function latestDisplayableSnapshot(): ?AnalysisSnapshot
+    {
+        return AnalysisSnapshot::query()
+            ->where('summary', '!=', '')
+            ->latest()
+            ->first();
+    }
+
+    public function records(): Collection
+    {
+        return Wallpaper::query()
+            ->whereNotNull('prize_vnd')
             ->whereNotNull('title')
             ->whereNotNull('composition')
             ->orderBy('target_date')
             ->get(['target_date', 'prize_vnd', 'title', 'art_style', 'overview', 'composition', 'color_wu_xing', 'symbolism']);
+    }
 
-        $hash = $this->dataHash($records);
-        $promptVersion = (string) config('lucky.openai.prompt_version');
-        $existing = AnalysisSnapshot::query()
-            ->where('data_hash', $hash)
-            ->where('prompt_version', $promptVersion)
-            ->where('status', 'succeeded')
-            ->first();
-        if ($existing !== null) {
-            return $existing;
+    public function analyze(AnalysisSnapshot $snapshot): AnalysisSnapshot
+    {
+        $records = $this->records();
+        if (! hash_equals($snapshot->data_hash, $this->dataHash($records))) {
+            throw new ExternalApiException('historical_analysis_stale_input', false);
         }
 
         $summaries = [];
@@ -36,23 +58,37 @@ class HistoricalAnalysisService
             $run = ApiRun::query()->create([
                 'type' => 'historical_analysis_chunk',
                 'model' => config('lucky.openai.text_model'),
-                'prompt_version' => $promptVersion,
+                'prompt_version' => $snapshot->prompt_version,
                 'input_hash' => hash('sha256', $input),
-                'subject_type' => $subject->getMorphClass(),
-                'subject_id' => $subject->getKey(),
+                'subject_type' => $snapshot->getMorphClass(),
+                'subject_id' => $snapshot->getKey(),
             ]);
             $result = $this->openAi->structured(
                 $run,
-                '宝くじ当選を保証せず、過去の壁紙構図と賞金額の相関として分析してください。因果関係や当選確率の向上を断定してはいけません。',
-                '分析チャンク '.($index + 1)."\n".$input,
+                $this->chunkInstructions(),
+                '分析チャンク '.($index + 1)."\n\n".$input,
                 $this->summarySchema(),
                 'wallpaper_analysis_chunk',
             );
-            $summaries[] = $result['summary'];
+            $summaries[] = $this->normalizeMarkdown($result['analysis_markdown']);
         }
 
         if ($summaries === []) {
-            $summary = '有効な過去実績はまだありません。新規性と画風ローテーションを優先してください。';
+            $summary = <<<'MARKDOWN'
+# 高額当選壁紙の傾向分析
+
+## 対象データ
+
+構図と当選金額が登録された壁紙履歴はまだありません。
+
+## 構図提案への活用指針
+
+過去傾向を参照できないため、新規性と画風のローテーションを優先します。
+
+## 注意点
+
+この分析は過去実績との相関を扱うもので、当選や当選確率の向上を保証するものではありません。
+MARKDOWN;
         } elseif (count($summaries) === 1) {
             $summary = $summaries[0];
         } else {
@@ -60,33 +96,33 @@ class HistoricalAnalysisService
             $run = ApiRun::query()->create([
                 'type' => 'historical_analysis_merge',
                 'model' => config('lucky.openai.text_model'),
-                'prompt_version' => $promptVersion,
+                'prompt_version' => $snapshot->prompt_version,
                 'input_hash' => hash('sha256', $input),
-                'subject_type' => $subject->getMorphClass(),
-                'subject_id' => $subject->getKey(),
+                'subject_type' => $snapshot->getMorphClass(),
+                'subject_id' => $snapshot->getKey(),
             ]);
             $result = $this->openAi->structured(
                 $run,
-                '複数の部分分析を統合し、再現可能な傾向、反例、新規探索余地を簡潔にまとめてください。当選の保証や因果関係の断定は禁止です。',
+                $this->mergeInstructions(),
                 $input,
                 $this->summarySchema(),
                 'wallpaper_analysis_summary',
             );
-            $summary = $result['summary'];
+            $summary = $this->normalizeMarkdown($result['analysis_markdown']);
         }
 
-        return AnalysisSnapshot::query()->create([
-            'data_hash' => $hash,
-            'prompt_version' => $promptVersion,
-            'model' => config('lucky.openai.text_model'),
+        $snapshot->update([
             'summary' => $summary,
             'statistics' => [
                 'records' => $records->count(),
                 'chunks' => count($summaries),
                 'max_prize_vnd' => $records->max('prize_vnd'),
+                'high_prize_threshold_vnd' => $this->highPrizeThreshold($records),
             ],
-            'status' => 'succeeded',
+            'status' => hash_equals($snapshot->data_hash, $this->currentDataHash()) ? 'succeeded' : 'invalidated',
         ]);
+
+        return $snapshot->refresh();
     }
 
     public function dataHash(Collection $records): string
@@ -109,14 +145,16 @@ class HistoricalAnalysisService
     {
         $maxRecords = (int) config('lucky.analysis.records_per_chunk');
         $maxCharacters = (int) config('lucky.analysis.characters_per_chunk');
+        $highPrizeThreshold = $this->highPrizeThreshold($records);
         $chunks = [];
         $current = [];
         $characters = 0;
 
-        foreach ($records as $record) {
+        foreach ($records->sortByDesc('prize_vnd') as $record) {
             $row = [
                 'date' => $record->target_date->format('Y-m-d'),
-                'price_vnd' => $record->prize_vnd,
+                'prize_vnd' => $record->prize_vnd,
+                'is_high_prize' => $record->prize_vnd >= $highPrizeThreshold,
                 'title' => $record->title,
                 'art_style' => $record->art_style,
                 'overview' => $record->overview,
@@ -145,8 +183,54 @@ class HistoricalAnalysisService
         return [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => ['summary'],
-            'properties' => ['summary' => ['type' => 'string']],
+            'required' => ['analysis_markdown'],
+            'properties' => ['analysis_markdown' => ['type' => 'string']],
         ];
+    }
+
+    private function highPrizeThreshold(Collection $records): int
+    {
+        $prizes = $records->pluck('prize_vnd')
+            ->filter(fn (mixed $prize): bool => is_int($prize))
+            ->sort()
+            ->values();
+        if ($prizes->isEmpty()) {
+            return 0;
+        }
+
+        $index = (int) floor(($prizes->count() - 1) * 0.75);
+
+        return (int) $prizes->get($index);
+    }
+
+    private function normalizeMarkdown(string $markdown): string
+    {
+        $markdown = trim($markdown);
+        if (! str_starts_with($markdown, '# ')) {
+            $markdown = "# 高額当選壁紙の傾向分析\n\n".$markdown;
+        }
+
+        return $markdown;
+    }
+
+    private function chunkInstructions(): string
+    {
+        return <<<'PROMPT'
+あなたは壁紙の過去実績を分析するデータアナリストです。
+入力は当選金額の高い順で、全体の上位25%に相当する壁紙には is_high_prize=true が付いています。
+高額当選側とそれ以外を比較し、構図、画風、色彩、モチーフ、象徴の相関傾向と反例を分析してください。
+因果関係や当選確率の向上を断定せず、サンプル数が少ない場合はその限界を明記してください。
+analysis_markdown にはコードフェンスを使わない日本語Markdownを格納し、見出し、箇条書きを使用してください。
+PROMPT;
+    }
+
+    private function mergeInstructions(): string
+    {
+        return <<<'PROMPT'
+複数の部分分析を統合し、重複を除いた一つの日本語Markdown文書にしてください。
+「# 高額当選壁紙の傾向分析」を先頭見出しとし、対象データ、高額当選側で見られる傾向、反例・注意点、構図提案への活用指針を含めてください。
+因果関係や当選確率の向上を断定せず、未知の構図を探索する余地も残してください。
+analysis_markdown にMarkdown本文だけを格納し、コードフェンスは使用しないでください。
+PROMPT;
     }
 }

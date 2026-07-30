@@ -35,7 +35,10 @@ class GenerateCompositionProposal implements ShouldQueue
     ): void {
         $wallpaper = Wallpaper::query()->findOrFail($this->wallpaperId);
         $run = ApiRun::query()->findOrFail($this->apiRunId);
-        $snapshot = $analysisService->getOrCreate($wallpaper);
+        $snapshot = $analysisService->currentSnapshot();
+        if ($snapshot === null) {
+            throw new ExternalApiException('historical_analysis_required', false);
+        }
         $calendar = $calendarService->forDate($wallpaper->target_date->format('Y-m-d'));
 
         $topWinners = Wallpaper::query()
@@ -60,7 +63,7 @@ class GenerateCompositionProposal implements ShouldQueue
         $input = json_encode([
             'target_date' => $wallpaper->target_date->format('Y-m-d'),
             'calendar' => $calendar,
-            'historical_analysis' => $snapshot->summary,
+            'historical_analysis_markdown' => $snapshot->summary,
             'top_winners' => $topWinners,
             'recent_art_styles' => $recentStyles,
             'rejected_same_day_proposals' => $rejected,
@@ -113,6 +116,7 @@ class GenerateCompositionProposal implements ShouldQueue
         return <<<'PROMPT'
 あなたは金運をテーマにしたスマートフォン壁紙のアートディレクターです。
 出力は過去実績との相関に基づく創作上の提案であり、宝くじ当選や確率向上を保証してはいけません。
+historical_analysis_markdown の傾向、反例、注意点、活用指針を構図検討に反映してください。
 画風は連続利用を避け、絵画、実写写真、彫刻写真など幅広くローテーションしてください。
 動植物、人物、現象、天体、抽象像、無機物、建築などあらゆるモチーフを利用できます。
 過去実績を参照しつつ、未知の構図やモチーフも探索してください。

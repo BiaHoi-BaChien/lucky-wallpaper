@@ -49,6 +49,7 @@ php artisan serve
 ## 主要操作
 
 - `POST /notion-syncs`: Notion実績の非同期取り込み
+- `POST /wallpaper-analyses`: 高額当選壁紙の傾向分析をOpenAIキューへ登録
 - `POST /wallpapers/proposals`: 対象日の構図提案
 - `POST /wallpapers/{id}/repropose`: 同日の過去案を除外して再提案
 - `POST /wallpapers/{id}/image`: 承認案から画像生成

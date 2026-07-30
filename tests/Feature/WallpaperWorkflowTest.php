@@ -4,9 +4,11 @@ namespace Tests\Feature;
 
 use App\Jobs\GenerateCompositionProposal;
 use App\Jobs\SyncWallpaperResultToNotion;
+use App\Models\AnalysisSnapshot;
 use App\Models\SyncRun;
 use App\Models\User;
 use App\Models\Wallpaper;
+use App\Services\HistoricalAnalysisService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -71,6 +73,7 @@ class WallpaperWorkflowTest extends TestCase
     {
         Queue::fake();
         $user = User::factory()->create();
+        $this->createCurrentAnalysis();
 
         $this->actingAs($user)->post('/wallpapers/proposals', ['target_date' => '2026-08-02'])
             ->assertRedirect();
@@ -101,5 +104,16 @@ class WallpaperWorkflowTest extends TestCase
         $wallpaper = Wallpaper::factory()->create();
 
         $this->get("/wallpapers/{$wallpaper->id}/download")->assertRedirect('/login');
+    }
+
+    private function createCurrentAnalysis(): AnalysisSnapshot
+    {
+        return AnalysisSnapshot::query()->create([
+            'data_hash' => app(HistoricalAnalysisService::class)->currentDataHash(),
+            'prompt_version' => config('lucky.openai.prompt_version'),
+            'model' => config('lucky.openai.text_model'),
+            'summary' => "# 高額当選壁紙の傾向分析\n\nテスト分析",
+            'status' => 'succeeded',
+        ]);
     }
 }

@@ -3,7 +3,6 @@
 namespace App\Jobs;
 
 use App\Exceptions\ExternalApiException;
-use App\Models\AnalysisSnapshot;
 use App\Models\SyncRun;
 use App\Models\Wallpaper;
 use App\Services\ImageService;
@@ -83,7 +82,6 @@ class SyncWallpaperResultToNotion implements ShouldQueue
             'state' => $hadLocalImage ? 'archived' : 'result_synced',
             'result_synced_at' => now(),
         ]);
-        AnalysisSnapshot::query()->where('status', 'succeeded')->update(['status' => 'invalidated']);
         $run->update([
             'status' => 'succeeded',
             'total' => 1,

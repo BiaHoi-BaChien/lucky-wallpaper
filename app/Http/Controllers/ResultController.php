@@ -39,7 +39,9 @@ class ResultController extends Controller
         ]);
 
         $wallpaper->update(['prize_vnd' => (int) $validated['prize_vnd']]);
-        AnalysisSnapshot::query()->where('status', 'succeeded')->update(['status' => 'invalidated']);
+        if ($wallpaper->wasChanged('prize_vnd')) {
+            AnalysisSnapshot::query()->where('status', 'succeeded')->update(['status' => 'invalidated']);
+        }
         $run = SyncRun::query()->create([
             'type' => 'notion_result',
             'wallpaper_id' => $wallpaper->id,
