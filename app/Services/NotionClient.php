@@ -127,16 +127,6 @@ class NotionClient
         $this->request('patch', '/pages/'.$pageId, ['properties' => $properties]);
     }
 
-    public function trashPage(string $pageId): void
-    {
-        $this->request('patch', '/pages/'.$pageId, ['in_trash' => true]);
-    }
-
-    public function restorePage(string $pageId): void
-    {
-        $this->request('patch', '/pages/'.$pageId, ['in_trash' => false]);
-    }
-
     public function createWallpaperPage(array $wallpaper): string
     {
         $response = $this->request('post', '/pages', [

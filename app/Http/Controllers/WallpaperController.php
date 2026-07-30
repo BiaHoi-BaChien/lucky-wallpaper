@@ -210,7 +210,6 @@ class WallpaperController extends Controller
     public function destroy(
         Wallpaper $wallpaper,
         WallpaperDeletionService $deletionService,
-        NotionClient $notion,
     ): RedirectResponse {
         try {
             $deletionService->delete($wallpaper);
@@ -220,9 +219,7 @@ class WallpaperController extends Controller
             report($exception);
 
             throw ValidationException::withMessages([
-                'delete' => $notion->isConfigured()
-                    ? '履歴の削除に失敗しました。Notionバックアップまたはストレージの接続を確認して再試行してください。'
-                    : '履歴の削除に失敗しました。ストレージの状態を確認して再試行してください。',
+                'delete' => '履歴の削除に失敗しました。ストレージの状態を確認して再試行してください。',
             ]);
         }
 

@@ -22,7 +22,7 @@ export default function WallpaperIndex({
 }: {
     wallpapers: { data: Wallpaper[]; links: { url: string | null; label: string; active: boolean }[] };
 }) {
-    const { flash, integrations } = usePage<SharedData>().props;
+    const { flash } = usePage<SharedData>().props;
 
     return (
         <AppLayout breadcrumbs={[{ title: '壁紙履歴・ダウンロード', href: route('wallpapers.index') }]}>
@@ -90,7 +90,7 @@ export default function WallpaperIndex({
                                                     <Button size="sm" variant="outline" asChild>
                                                         <Link href={route('wallpapers.show', { wallpaper: wallpaper.id })}>詳細</Link>
                                                     </Button>
-                                                    <DeleteWallpaperDialog wallpaper={wallpaper} notionConfigured={integrations.notion.configured} />
+                                                    <DeleteWallpaperDialog wallpaper={wallpaper} />
                                                 </div>
                                             </td>
                                         </tr>

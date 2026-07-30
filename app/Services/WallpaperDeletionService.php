@@ -14,8 +14,6 @@ use Throwable;
 
 class WallpaperDeletionService
 {
-    public function __construct(private readonly NotionClient $notion) {}
-
     public function deleteImage(Wallpaper $wallpaper): bool
     {
         $this->ensureNoActiveProcesses($wallpaper, 'deleteImage');
@@ -71,16 +69,9 @@ class WallpaperDeletionService
             }
         }
 
-        $notionPageId = $wallpaper->notion_page_id;
-        $notionTrashed = false;
         $imageDeleted = false;
 
         try {
-            if ($this->notion->isConfigured() && $notionPageId !== null && $notionPageId !== '') {
-                $this->notion->trashPage($notionPageId);
-                $notionTrashed = true;
-            }
-
             if ($disk !== null && $imageBytes !== null) {
                 if (! $disk->delete($imagePath)) {
                     throw new RuntimeException('wallpaper_image_delete_failed');
@@ -104,14 +95,6 @@ class WallpaperDeletionService
             if ($imageDeleted && $disk !== null && $imageBytes !== null) {
                 try {
                     $disk->put($imagePath, $imageBytes);
-                } catch (Throwable $restoreException) {
-                    report($restoreException);
-                }
-            }
-
-            if ($notionTrashed && $notionPageId !== null) {
-                try {
-                    $this->notion->restorePage($notionPageId);
                 } catch (Throwable $restoreException) {
                     report($restoreException);
                 }
