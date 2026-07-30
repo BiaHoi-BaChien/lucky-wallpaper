@@ -9,7 +9,7 @@ import AppLogo from './app-logo';
 
 const mainNavItems: NavItem[] = [
     {
-        title: 'ダッシュボード・同期',
+        title: 'ダッシュボード',
         url: route('dashboard'),
         icon: LayoutGrid,
     },
