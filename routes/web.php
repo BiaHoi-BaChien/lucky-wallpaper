@@ -4,6 +4,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\NotionSyncController;
 use App\Http\Controllers\OperationController;
 use App\Http\Controllers\ResultController;
+use App\Http\Controllers\WallpaperAnalysisController;
 use App\Http\Controllers\WallpaperController;
 use App\Models\User;
 use Illuminate\Support\Facades\Route;
@@ -21,6 +22,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('notion-syncs', [NotionSyncController::class, 'store'])->name('notion-syncs.store');
 
     Route::get('wallpapers/create', [WallpaperController::class, 'create'])->name('wallpapers.create');
+    Route::post('wallpaper-analyses', [WallpaperAnalysisController::class, 'store'])->name('wallpaper-analyses.store');
     Route::post('wallpapers/proposals', [WallpaperController::class, 'storeProposal'])->name('wallpapers.proposals.store');
     Route::get('wallpapers', [WallpaperController::class, 'index'])->name('wallpapers.index');
     Route::get('wallpapers/{wallpaper}', [WallpaperController::class, 'show'])->name('wallpapers.show');

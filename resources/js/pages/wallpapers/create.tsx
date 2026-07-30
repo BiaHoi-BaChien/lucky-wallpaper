@@ -4,10 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Operation, useOperation } from '@/hooks/use-operation';
 import AppLayout from '@/layouts/app-layout';
 import { wallpaperStateLabel } from '@/lib/wallpaper-state';
-import { Head, Link, router, useForm } from '@inertiajs/react';
-import { FormEvent } from 'react';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
+import { LoaderCircle } from 'lucide-react';
+import { FormEvent, ReactNode } from 'react';
 
 interface Existing {
     id: number;
@@ -16,26 +18,103 @@ interface Existing {
     state: string;
 }
 
+interface Analysis {
+    id: number;
+    markdown: string;
+    is_latest: boolean;
+    created_at: string | null;
+    statistics: {
+        records?: number;
+        max_prize_vnd?: number | null;
+        high_prize_threshold_vnd?: number;
+    } | null;
+}
+
 export default function CreateWallpaper({
     defaultDate,
     selectedDate,
     existing,
+    analysis,
+    latestAnalysisRun,
 }: {
     defaultDate: string;
     selectedDate: string;
     existing: Existing | null;
+    analysis: Analysis | null;
+    latestAnalysisRun: Operation | null;
 }) {
     const form = useForm({ target_date: selectedDate || defaultDate });
+    const analysisForm = useForm({});
+    const { operation: analysisOperation } = useOperation(latestAnalysisRun);
+    const page = usePage<{ errors: { analysis?: string; proposal?: string } }>();
+    const analysisActive = ['queued', 'running'].includes(analysisOperation?.status ?? '');
+    const analysisIsLatest = analysis?.is_latest ?? false;
 
     const submit = (event: FormEvent) => {
         event.preventDefault();
         form.post(route('wallpapers.proposals.store'));
     };
 
+    const analyze = () => {
+        analysisForm.post(route('wallpaper-analyses.store'), {
+            preserveScroll: true,
+        });
+    };
+
     return (
         <AppLayout breadcrumbs={[{ title: '壁紙作成', href: route('wallpapers.create') }]}>
             <Head title="壁紙作成" />
-            <div className="max-w-3xl p-4">
+            <div className="max-w-4xl space-y-6 p-4">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>高額当選壁紙の傾向分析</CardTitle>
+                        <CardDescription>当選金額が登録された壁紙履歴を比較し、上位25%の構図傾向をMarkdownで保存します。</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="flex flex-wrap items-center gap-3">
+                            <Button
+                                type="button"
+                                variant={analysisIsLatest ? 'outline' : 'default'}
+                                disabled={analysisActive || analysisIsLatest || analysisForm.processing}
+                                onClick={analyze}
+                            >
+                                {analysisActive && <LoaderCircle className="size-4 animate-spin" />}
+                                {analysisIsLatest ? '既に最新です' : analysisActive ? '傾向分析中' : '傾向分析'}
+                            </Button>
+                            {analysis && (
+                                <span className="text-muted-foreground text-sm">
+                                    対象 {analysis.statistics?.records ?? 0}件
+                                    {analysis.created_at && `・更新 ${new Date(analysis.created_at).toLocaleString('ja-JP')}`}
+                                </span>
+                            )}
+                        </div>
+
+                        <InputError message={page.props.errors.analysis} />
+
+                        {analysisOperation?.status === 'failed' && (
+                            <Alert variant="destructive">
+                                <AlertTitle>傾向分析に失敗しました。</AlertTitle>
+                                <AlertDescription>エラーコード: {analysisOperation.error_code}</AlertDescription>
+                            </Alert>
+                        )}
+
+                        {analysis && !analysisIsLatest && !analysisActive && (
+                            <Alert variant="warning">
+                                <AlertTitle>壁紙履歴が更新されています。</AlertTitle>
+                                <AlertDescription>「傾向分析」を実行して、最新の履歴を反映してください。</AlertDescription>
+                            </Alert>
+                        )}
+
+                        {analysis ? (
+                            <div className="bg-muted/50 rounded-lg border p-4">
+                                <MarkdownAnalysis markdown={analysis.markdown} />
+                            </div>
+                        ) : (
+                            !analysisActive && <p className="text-muted-foreground text-sm">分析結果はまだありません。</p>
+                        )}
+                    </CardContent>
+                </Card>
+
                 <Card>
                     <CardHeader>
                         <CardTitle>対象日を選択</CardTitle>
@@ -70,13 +149,42 @@ export default function CreateWallpaper({
                                 </AlertDescription>
                             </Alert>
                         ) : (
-                            <form onSubmit={submit}>
-                                <Button disabled={form.processing}>構図を提案してもらう</Button>
+                            <form onSubmit={submit} className="space-y-2">
+                                <Button disabled={form.processing || !analysisIsLatest}>構図を提案してもらう</Button>
+                                {!analysisIsLatest && (
+                                    <p className="text-muted-foreground text-sm">構図提案の前に、最新の傾向分析を完了してください。</p>
+                                )}
+                                <InputError message={page.props.errors.proposal} />
                             </form>
                         )}
                     </CardContent>
                 </Card>
             </div>
         </AppLayout>
+    );
+}
+
+function MarkdownAnalysis({ markdown }: { markdown: string }) {
+    return (
+        <div className="space-y-2 text-sm leading-6">
+            {markdown.split('\n').map((line, index) => {
+                let content: ReactNode = line;
+                if (line.startsWith('# ')) {
+                    content = <h2 className="text-lg font-semibold">{line.slice(2)}</h2>;
+                } else if (line.startsWith('## ')) {
+                    content = <h3 className="pt-2 font-semibold">{line.slice(3)}</h3>;
+                } else if (line.startsWith('### ')) {
+                    content = <h4 className="pt-1 font-medium">{line.slice(4)}</h4>;
+                } else if (/^[-*] /.test(line)) {
+                    content = <p className="pl-4 before:mr-2 before:content-['•']">{line.slice(2)}</p>;
+                } else if (line === '') {
+                    content = <span className="block h-1" />;
+                } else {
+                    content = <p>{line}</p>;
+                }
+
+                return <div key={`${index}-${line}`}>{content}</div>;
+            })}
+        </div>
     );
 }

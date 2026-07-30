@@ -7,6 +7,7 @@ use App\Jobs\GenerateWallpaperImage;
 use App\Models\ApiRun;
 use App\Models\CompositionProposal;
 use App\Models\Wallpaper;
+use App\Services\HistoricalAnalysisService;
 use App\Services\NotionClient;
 use App\Services\WallpaperDeletionService;
 use Carbon\CarbonImmutable;
@@ -24,25 +25,44 @@ use Throwable;
 
 class WallpaperController extends Controller
 {
-    public function create(Request $request): Response
+    public function create(Request $request, HistoricalAnalysisService $analysisService): Response
     {
         $defaultDate = CarbonImmutable::now(config('lucky.timezone'))->addDay()->toDateString();
         $selectedDate = $request->string('date')->toString() ?: $defaultDate;
+        $analysis = $analysisService->latestDisplayableSnapshot();
+        $currentDataHash = $analysisService->currentDataHash();
+        $analysisIsLatest = $analysis !== null
+            && $analysis->status === 'succeeded'
+            && hash_equals($currentDataHash, $analysis->data_hash)
+            && $analysis->prompt_version === (string) config('lucky.openai.prompt_version');
 
         return Inertia::render('wallpapers/create', [
             'defaultDate' => $defaultDate,
             'selectedDate' => $selectedDate,
             'existing' => Wallpaper::query()->where('target_date', $selectedDate)->first(),
+            'analysis' => $analysis === null ? null : [
+                'id' => $analysis->id,
+                'markdown' => $analysis->summary,
+                'is_latest' => $analysisIsLatest,
+                'created_at' => $analysis->updated_at?->toIso8601String(),
+                'statistics' => $analysis->statistics,
+            ],
+            'latestAnalysisRun' => ApiRun::query()
+                ->where('type', 'historical_analysis')
+                ->latest()
+                ->first(),
         ]);
     }
 
-    public function storeProposal(Request $request): RedirectResponse
-    {
+    public function storeProposal(
+        Request $request,
+        HistoricalAnalysisService $analysisService,
+    ): RedirectResponse {
         $validated = $request->validate([
             'target_date' => ['required', 'date_format:Y-m-d'],
         ]);
 
-        $result = DB::transaction(function () use ($validated): array {
+        $result = DB::transaction(function () use ($validated, $analysisService): array {
             $existing = Wallpaper::query()
                 ->where('target_date', $validated['target_date'])
                 ->lockForUpdate()
@@ -51,12 +71,22 @@ class WallpaperController extends Controller
                 return [$existing, null];
             }
 
+            $snapshot = $analysisService->currentSnapshot();
+            if ($snapshot === null) {
+                throw ValidationException::withMessages([
+                    'proposal' => '最新の傾向分析を実行してから構図を提案してください。',
+                ]);
+            }
+
             $wallpaper = Wallpaper::query()->create([
                 'target_date' => $validated['target_date'],
                 'source' => 'generated',
                 'state' => 'draft',
             ]);
-            $inputHash = hash('sha256', $validated['target_date'].'|'.config('lucky.openai.prompt_version'));
+            $inputHash = hash(
+                'sha256',
+                $validated['target_date'].'|'.config('lucky.openai.prompt_version').'|'.$snapshot->data_hash,
+            );
             $run = $this->createApiRun($wallpaper, 'composition_proposal', $inputHash);
 
             return [$wallpaper, $run];
@@ -83,8 +113,16 @@ class WallpaperController extends Controller
         ]);
     }
 
-    public function repropose(Wallpaper $wallpaper): RedirectResponse
-    {
+    public function repropose(
+        Wallpaper $wallpaper,
+        HistoricalAnalysisService $analysisService,
+    ): RedirectResponse {
+        if ($analysisService->currentSnapshot() === null) {
+            throw ValidationException::withMessages([
+                'proposal' => '壁紙履歴が更新されています。最新の傾向分析を実行してから再提案してください。',
+            ]);
+        }
+
         $active = ApiRun::query()
             ->where('subject_type', $wallpaper->getMorphClass())
             ->where('subject_id', $wallpaper->id)
