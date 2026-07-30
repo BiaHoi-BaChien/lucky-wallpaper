@@ -27,6 +27,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('wallpapers/{wallpaper}/repropose', [WallpaperController::class, 'repropose'])->name('wallpapers.repropose');
     Route::post('wallpapers/{wallpaper}/image', [WallpaperController::class, 'image'])->name('wallpapers.image');
     Route::get('wallpapers/{wallpaper}/download', [WallpaperController::class, 'download'])->name('wallpapers.download');
+    Route::delete('wallpapers/{wallpaper}', [WallpaperController::class, 'destroy'])->name('wallpapers.destroy');
 
     Route::get('results', [ResultController::class, 'index'])->name('results.index');
     Route::put('wallpapers/{wallpaper}/result', [ResultController::class, 'update'])->name('wallpapers.result.update');

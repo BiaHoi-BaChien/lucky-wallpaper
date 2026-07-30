@@ -1,9 +1,23 @@
+import InputError from '@/components/input-error';
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from '@/components/ui/dialog';
 import AppLayout from '@/layouts/app-layout';
 import { wallpaperStateLabel } from '@/lib/wallpaper-state';
-import { Head, Link } from '@inertiajs/react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { SharedData } from '@/types';
+import { Head, Link, router, usePage } from '@inertiajs/react';
+import { ChevronLeft, ChevronRight, LoaderCircle, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 
 interface Wallpaper {
     id: number;
@@ -14,11 +28,74 @@ interface Wallpaper {
     state: string;
 }
 
+function DeleteWallpaperDialog({ wallpaper }: { wallpaper: Wallpaper }) {
+    const [open, setOpen] = useState(false);
+    const [processing, setProcessing] = useState(false);
+    const [deleteError, setDeleteError] = useState<string>();
+
+    const destroy = () => {
+        router.delete(route('wallpapers.destroy', { wallpaper: wallpaper.id }), {
+            preserveScroll: true,
+            onStart: () => {
+                setProcessing(true);
+                setDeleteError(undefined);
+            },
+            onSuccess: () => setOpen(false),
+            onError: (errors) => setDeleteError(errors.delete),
+            onFinish: () => setProcessing(false),
+        });
+    };
+
+    return (
+        <Dialog
+            open={open}
+            onOpenChange={(nextOpen) => {
+                if (!processing) {
+                    setOpen(nextOpen);
+                    if (nextOpen) {
+                        setDeleteError(undefined);
+                    }
+                }
+            }}
+        >
+            <DialogTrigger asChild>
+                <Button size="sm" variant="destructive">
+                    <Trash2 aria-hidden="true" />
+                    削除
+                </Button>
+            </DialogTrigger>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>この壁紙履歴を削除しますか？</DialogTitle>
+                    <DialogDescription>
+                        {wallpaper.target_date}
+                        の履歴を削除します。サーバー上のデータベースレコードと画像ファイルは完全に削除され、Notionのレコードはゴミ箱へ移動します。この画面からは元に戻せません。
+                    </DialogDescription>
+                </DialogHeader>
+                <InputError message={deleteError} />
+                <DialogFooter>
+                    <DialogClose asChild>
+                        <Button type="button" variant="outline" disabled={processing}>
+                            キャンセル
+                        </Button>
+                    </DialogClose>
+                    <Button type="button" variant="destructive" disabled={processing} onClick={destroy}>
+                        {processing && <LoaderCircle className="animate-spin" aria-hidden="true" />}
+                        {processing ? '削除中' : '削除する'}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
 export default function WallpaperIndex({
     wallpapers,
 }: {
     wallpapers: { data: Wallpaper[]; links: { url: string | null; label: string; active: boolean }[] };
 }) {
+    const { flash } = usePage<SharedData>().props;
+
     return (
         <AppLayout breadcrumbs={[{ title: '壁紙履歴・ダウンロード', href: route('wallpapers.index') }]}>
             <Head title="壁紙履歴" />
@@ -28,6 +105,7 @@ export default function WallpaperIndex({
                         <CardTitle>壁紙履歴</CardTitle>
                     </CardHeader>
                     <CardContent>
+                        {flash.status && <Alert className="mb-4">{flash.status}</Alert>}
                         <div className="overflow-x-auto rounded-md border">
                             <table className="w-full text-left text-sm">
                                 <thead>
@@ -64,9 +142,12 @@ export default function WallpaperIndex({
                                                 </span>
                                             </td>
                                             <td className="p-3">
-                                                <Button size="sm" variant="outline" asChild>
-                                                    <Link href={route('wallpapers.show', { wallpaper: wallpaper.id })}>詳細</Link>
-                                                </Button>
+                                                <div className="flex justify-end gap-2">
+                                                    <Button size="sm" variant="outline" asChild>
+                                                        <Link href={route('wallpapers.show', { wallpaper: wallpaper.id })}>詳細</Link>
+                                                    </Button>
+                                                    <DeleteWallpaperDialog wallpaper={wallpaper} />
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}

@@ -46,6 +46,7 @@ class HandleInertiaRequests extends Middleware
             ],
             'flash' => [
                 'operationId' => fn () => $request->session()->get('operationId'),
+                'status' => fn () => $request->session()->get('status'),
             ],
         ]);
     }

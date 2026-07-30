@@ -27,6 +27,7 @@ export interface SharedData {
     auth: Auth;
     flash: {
         operationId?: string;
+        status?: string;
     };
     [key: string]: unknown;
 }
