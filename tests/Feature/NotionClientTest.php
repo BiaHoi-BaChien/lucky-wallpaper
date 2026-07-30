@@ -122,6 +122,12 @@ class NotionClientTest extends TestCase
         Bus::assertBatched(function (PendingBatch $batch): bool {
             $job = $batch->jobs->first();
 
+            foreach ([...$batch->thenCallbacks(), ...$batch->catchCallbacks()] as $callback) {
+                if ((new \ReflectionFunction($callback->getClosure()))->getClosureThis() !== null) {
+                    return false;
+                }
+            }
+
             return $job instanceof ImportNotionPages
                 && $job->candidates[0]['page_id'] === 'latest-page'
                 && count($job->candidates) === 1;

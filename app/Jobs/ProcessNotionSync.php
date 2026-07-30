@@ -104,12 +104,14 @@ class ProcessNotionSync implements ShouldQueue
             array_chunk($newCandidates, 20),
         );
 
+        $runId = $this->runId;
+
         Bus::batch($jobs)
-            ->name('notion-sync-'.$this->runId)
+            ->name('notion-sync-'.$runId)
             ->onQueue('integrations')
-            ->then(fn (Batch $batch) => FinalizeNotionSync::dispatch($this->runId))
-            ->catch(function (Batch $batch, Throwable $exception): void {
-                SyncRun::query()->whereKey($this->runId)->update([
+            ->then(static fn (Batch $batch) => FinalizeNotionSync::dispatch($runId))
+            ->catch(static function (Batch $batch, Throwable $exception) use ($runId): void {
+                SyncRun::query()->whereKey($runId)->update([
                     'status' => 'failed',
                     'retryable' => true,
                     'error_code' => 'notion_import_batch_failed',
