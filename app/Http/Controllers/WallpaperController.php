@@ -8,6 +8,7 @@ use App\Models\ApiRun;
 use App\Models\CompositionProposal;
 use App\Models\Wallpaper;
 use App\Services\NotionClient;
+use App\Services\WallpaperDeletionService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -19,6 +20,7 @@ use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 
 class WallpaperController extends Controller
 {
@@ -128,6 +130,26 @@ class WallpaperController extends Controller
         return Inertia::render('wallpapers/index', [
             'wallpapers' => Wallpaper::query()->orderByDesc('target_date')->paginate(20),
         ]);
+    }
+
+    public function destroy(
+        Wallpaper $wallpaper,
+        WallpaperDeletionService $deletionService,
+    ): RedirectResponse {
+        try {
+            $deletionService->delete($wallpaper);
+        } catch (ValidationException $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            report($exception);
+
+            throw ValidationException::withMessages([
+                'delete' => '履歴の削除に失敗しました。Notionまたはストレージの接続を確認して再試行してください。',
+            ]);
+        }
+
+        return to_route('wallpapers.index')
+            ->with('status', '履歴を削除しました。');
     }
 
     public function download(Wallpaper $wallpaper): StreamedResponse|HttpResponse
