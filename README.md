@@ -6,7 +6,7 @@
 
 ## 技術構成
 
-- Laravel 12 / PHP 8.2以上
+- Laravel 13 / PHP 8.3以上
 - Inertia 2 / React 19 / TypeScript / Tailwind CSS 4
 - MySQL / DBキュー
 - Laravel Passkeys（WebAuthn）
