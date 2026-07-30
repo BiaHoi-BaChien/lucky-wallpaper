@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Jobs\GenerateCompositionProposal;
 use App\Jobs\SyncWallpaperResultToNotion;
+use App\Models\SyncRun;
 use App\Models\User;
 use App\Models\Wallpaper;
 use Carbon\CarbonImmutable;
@@ -36,7 +37,21 @@ class WallpaperWorkflowTest extends TestCase
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->component('results/index', false)
                 ->where('defaultDate', '2026-07-29')
-                ->where('selectedDate', ''));
+                ->where('selectedDate', '')
+                ->where('latestImport', null));
+    }
+
+    public function test_result_page_receives_latest_notion_import(): void
+    {
+        $user = User::factory()->create();
+        SyncRun::query()->create(['type' => 'notion_import', 'status' => 'succeeded', 'created_at' => now()->subMinute()]);
+        $latestImport = SyncRun::query()->create(['type' => 'notion_import', 'status' => 'queued']);
+
+        $this->actingAs($user)->get('/results')
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('results/index', false)
+                ->where('latestImport.id', $latestImport->id)
+                ->where('latestImport.status', 'queued'));
     }
 
     public function test_existing_date_is_not_generated_again(): void

@@ -28,6 +28,7 @@ class ResultController extends Controller
                 ->where('wallpaper_id', Wallpaper::query()->where('target_date', $date)->value('id'))
                 ->latest()
                 ->first(),
+            'latestImport' => SyncRun::query()->where('type', 'notion_import')->latest()->first(),
         ]);
     }
 
