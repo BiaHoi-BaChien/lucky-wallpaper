@@ -9,6 +9,11 @@ use Illuminate\Support\Facades\Http;
 
 class NotionClient
 {
+    public function isConfigured(): bool
+    {
+        return trim((string) config('lucky.notion.token')) !== '';
+    }
+
     /** @var array<int, string>|null */
     private ?array $candidatePropertyIds = null;
 

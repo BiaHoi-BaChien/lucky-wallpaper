@@ -7,8 +7,8 @@ import { Label } from '@/components/ui/label';
 import { Operation, useOperation } from '@/hooks/use-operation';
 import AppLayout from '@/layouts/app-layout';
 import { wallpaperStateLabel } from '@/lib/wallpaper-state';
+import { SharedData } from '@/types';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
-import { LoaderCircle } from 'lucide-react';
 import { FormEvent } from 'react';
 
 interface Wallpaper {
@@ -28,20 +28,17 @@ export default function Results({
     defaultDate,
     wallpaper,
     latestRun,
-    latestImport,
 }: {
     selectedDate: string;
     defaultDate: string;
     wallpaper: Wallpaper | null;
     latestRun: Operation | null;
-    latestImport: Operation | null;
 }) {
     const search = useForm({ date: selectedDate || defaultDate });
     const result = useForm({ prize_vnd: wallpaper?.prize_vnd?.toString() ?? '' });
     const { operation: resultOperation } = useOperation(latestRun);
-    const { operation: importOperation } = useOperation(latestImport);
-    const page = usePage<{ errors: { sync?: string } }>();
-    const importActive = importOperation && ['queued', 'running'].includes(importOperation.status);
+    const { integrations, flash } = usePage<SharedData>().props;
+    const notionConfigured = integrations.notion.configured;
 
     const find = (event: FormEvent) => {
         event.preventDefault();
@@ -58,6 +55,7 @@ export default function Results({
         <AppLayout breadcrumbs={[{ title: '実績登録', href: route('results.index') }]}>
             <Head title="実績登録" />
             <div className="max-w-4xl space-y-6 p-4">
+                {flash.status && <Alert>{flash.status}</Alert>}
                 <Card>
                     <CardHeader>
                         <CardTitle>対象日の検索</CardTitle>
@@ -87,6 +85,11 @@ export default function Results({
                         </CardHeader>
                         <CardContent className="space-y-5">
                             <p className="text-sm whitespace-pre-wrap">{wallpaper.composition}</p>
+                            <p className="text-muted-foreground text-sm">
+                                {notionConfigured
+                                    ? '実績をサーバーに保存し、Notionにもバックアップします。'
+                                    : '実績はサーバーに保存します。NotionバックアップはNOTION_TOKEN未設定のため実行されません。'}
+                            </p>
                             <form onSubmit={save} className="space-y-3">
                                 <Label htmlFor="prize_vnd">当選金額（VND、0以上の整数）</Label>
                                 <Input
@@ -101,12 +104,12 @@ export default function Results({
                                 />
                                 <InputError message={result.errors.prize_vnd} />
                                 <Button disabled={result.processing || ['queued', 'running'].includes(resultOperation?.status ?? '')}>
-                                    保存してNotion同期
+                                    {notionConfigured ? '保存してバックアップ' : 'サーバーに保存'}
                                 </Button>
                             </form>
                             {resultOperation && resultOperation.type !== undefined && (
                                 <div className="bg-muted rounded-lg p-3 text-sm">
-                                    同期状態: {resultOperation.status}
+                                    バックアップ状態: {resultOperation.status}
                                     {resultOperation.error_code && (
                                         <span className="ml-2 text-red-600 dark:text-red-400">{resultOperation.error_code}</span>
                                     )}
@@ -115,42 +118,6 @@ export default function Results({
                         </CardContent>
                     </Card>
                 )}
-
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Notion実績情報取り込み</CardTitle>
-                        <CardDescription>
-                            初回導入時に、過去のNotion実績を取り込むための補助機能です。通常の実績は上の実績登録から登録されるため、原則として初回のみ使用します。
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <Button disabled={Boolean(importActive)} onClick={() => router.post(route('notion-syncs.store'))}>
-                            {importActive && <LoaderCircle className="size-4 animate-spin" />}
-                            {importActive ? '取り込み中' : 'Notion実績情報を取り込む'}
-                        </Button>
-                        <InputError message={page.props.errors.sync} />
-                        {importOperation && (
-                            <div className="bg-muted rounded-lg p-4 text-sm">
-                                <p>
-                                    状態: <strong>{importOperation.status}</strong>
-                                </p>
-                                <p>
-                                    進捗: {importOperation.processed ?? 0} / {importOperation.total ?? 0}
-                                </p>
-                                <p>
-                                    登録 {importOperation.imported ?? 0}・既存 {importOperation.skipped_existing ?? 0}・ 必須不足{' '}
-                                    {importOperation.skipped_invalid ?? 0}・本文空 {importOperation.skipped_empty_body ?? 0}
-                                </p>
-                                {importOperation.error_code && <p className="text-red-600 dark:text-red-400">エラー: {importOperation.error_code}</p>}
-                                {importOperation.warnings?.map((warning) => (
-                                    <p key={warning} className="text-amber-700 dark:text-amber-300">
-                                        警告: {warning}
-                                    </p>
-                                ))}
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
             </div>
         </AppLayout>
     );

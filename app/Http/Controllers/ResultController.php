@@ -6,6 +6,7 @@ use App\Jobs\SyncWallpaperResultToNotion;
 use App\Models\AnalysisSnapshot;
 use App\Models\SyncRun;
 use App\Models\Wallpaper;
+use App\Services\NotionClient;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -14,7 +15,7 @@ use Inertia\Response;
 
 class ResultController extends Controller
 {
-    public function index(Request $request): Response
+    public function index(Request $request, NotionClient $notion): Response
     {
         $defaultDate = CarbonImmutable::now(config('lucky.timezone'))->toDateString();
         $date = $request->string('date')->toString();
@@ -23,17 +24,19 @@ class ResultController extends Controller
             'defaultDate' => $defaultDate,
             'selectedDate' => $date,
             'wallpaper' => $date === '' ? null : Wallpaper::query()->where('target_date', $date)->first(),
-            'latestRun' => $date === '' ? null : SyncRun::query()
+            'latestRun' => $date === '' || ! $notion->isConfigured() ? null : SyncRun::query()
                 ->where('type', 'notion_result')
                 ->where('wallpaper_id', Wallpaper::query()->where('target_date', $date)->value('id'))
                 ->latest()
                 ->first(),
-            'latestImport' => SyncRun::query()->where('type', 'notion_import')->latest()->first(),
         ]);
     }
 
-    public function update(Request $request, Wallpaper $wallpaper): RedirectResponse
-    {
+    public function update(
+        Request $request,
+        Wallpaper $wallpaper,
+        NotionClient $notion,
+    ): RedirectResponse {
         $validated = $request->validate([
             'prize_vnd' => ['required', 'integer', 'min:0', 'digits_between:1,15'],
         ]);
@@ -42,6 +45,10 @@ class ResultController extends Controller
         if ($wallpaper->wasChanged('prize_vnd')) {
             AnalysisSnapshot::query()->where('status', 'succeeded')->update(['status' => 'invalidated']);
         }
+        if (! $notion->isConfigured()) {
+            return back()->with('status', '実績をサーバーに保存しました。Notionバックアップは未設定のため実行していません。');
+        }
+
         $run = SyncRun::query()->create([
             'type' => 'notion_result',
             'wallpaper_id' => $wallpaper->id,

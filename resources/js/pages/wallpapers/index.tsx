@@ -28,7 +28,7 @@ interface Wallpaper {
     state: string;
 }
 
-function DeleteWallpaperDialog({ wallpaper }: { wallpaper: Wallpaper }) {
+function DeleteWallpaperDialog({ wallpaper, notionConfigured }: { wallpaper: Wallpaper; notionConfigured: boolean }) {
     const [open, setOpen] = useState(false);
     const [processing, setProcessing] = useState(false);
     const [deleteError, setDeleteError] = useState<string>();
@@ -69,7 +69,9 @@ function DeleteWallpaperDialog({ wallpaper }: { wallpaper: Wallpaper }) {
                     <DialogTitle>この壁紙履歴を削除しますか？</DialogTitle>
                     <DialogDescription>
                         {wallpaper.target_date}
-                        の履歴を削除します。サーバー上のデータベースレコードと画像ファイルは完全に削除され、Notionのレコードはゴミ箱へ移動します。この画面からは元に戻せません。
+                        {notionConfigured
+                            ? 'の履歴を削除します。サーバー上のデータベースレコードと画像ファイルは完全に削除され、Notionバックアップはゴミ箱へ移動します。この画面からは元に戻せません。'
+                            : 'の履歴をサーバーから削除します。サーバー上のデータベースレコードと画像ファイルは完全に削除されます。Notionバックアップは変更されません。この画面からは元に戻せません。'}
                     </DialogDescription>
                 </DialogHeader>
                 <InputError message={deleteError} />
@@ -94,7 +96,7 @@ export default function WallpaperIndex({
 }: {
     wallpapers: { data: Wallpaper[]; links: { url: string | null; label: string; active: boolean }[] };
 }) {
-    const { flash } = usePage<SharedData>().props;
+    const { flash, integrations } = usePage<SharedData>().props;
 
     return (
         <AppLayout breadcrumbs={[{ title: '壁紙履歴・ダウンロード', href: route('wallpapers.index') }]}>
@@ -146,7 +148,7 @@ export default function WallpaperIndex({
                                                     <Button size="sm" variant="outline" asChild>
                                                         <Link href={route('wallpapers.show', { wallpaper: wallpaper.id })}>詳細</Link>
                                                     </Button>
-                                                    <DeleteWallpaperDialog wallpaper={wallpaper} />
+                                                    <DeleteWallpaperDialog wallpaper={wallpaper} notionConfigured={integrations.notion.configured} />
                                                 </div>
                                             </td>
                                         </tr>

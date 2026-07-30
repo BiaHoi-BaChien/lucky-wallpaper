@@ -35,7 +35,17 @@ interface Wallpaper {
     proposals: Proposal[];
 }
 
-export default function ShowWallpaper({ wallpaper, latestApiRun }: { wallpaper: Wallpaper; latestApiRun: Operation | null }) {
+export default function ShowWallpaper({
+    wallpaper,
+    latestApiRun,
+    downloadAvailable,
+    downloadUnavailableReason,
+}: {
+    wallpaper: Wallpaper;
+    latestApiRun: Operation | null;
+    downloadAvailable: boolean;
+    downloadUnavailableReason: string | null;
+}) {
     const { operation } = useOperation(latestApiRun);
     const active = operation && ['queued', 'running'].includes(operation.status);
     const current = wallpaper.proposals.find((proposal) => proposal.status === 'proposed') ?? wallpaper.proposals[0];
@@ -108,12 +118,18 @@ export default function ShowWallpaper({ wallpaper, latestApiRun }: { wallpaper: 
                                         画像生成を再試行
                                     </Button>
                                 )}
-                                {['generated', 'archived', 'result_synced'].includes(wallpaper.state) && (
+                                {['generated', 'archived', 'result_synced'].includes(wallpaper.state) && downloadAvailable && (
                                     <Button variant="outline" asChild>
                                         <a href={route('wallpapers.download', { wallpaper: wallpaper.id })}>画像をダウンロード</a>
                                     </Button>
                                 )}
                             </div>
+                            {downloadUnavailableReason && (
+                                <Alert variant="warning">
+                                    <AlertTitle>画像をダウンロードできません。</AlertTitle>
+                                    <AlertDescription>{downloadUnavailableReason}</AlertDescription>
+                                </Alert>
+                            )}
                         </CardContent>
                     </Card>
                 )}

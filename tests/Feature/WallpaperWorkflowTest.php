@@ -39,21 +39,20 @@ class WallpaperWorkflowTest extends TestCase
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->component('results/index', false)
                 ->where('defaultDate', '2026-07-29')
-                ->where('selectedDate', '')
-                ->where('latestImport', null));
+                ->where('selectedDate', ''));
     }
 
-    public function test_result_page_receives_latest_notion_import(): void
+    public function test_notion_backup_settings_receives_latest_restore(): void
     {
         $user = User::factory()->create();
         SyncRun::query()->create(['type' => 'notion_import', 'status' => 'succeeded', 'created_at' => now()->subMinute()]);
-        $latestImport = SyncRun::query()->create(['type' => 'notion_import', 'status' => 'queued']);
+        $latestRestore = SyncRun::query()->create(['type' => 'notion_import', 'status' => 'queued']);
 
-        $this->actingAs($user)->get('/results')
+        $this->actingAs($user)->get('/settings/notion-backup')
             ->assertInertia(fn (AssertableInertia $page) => $page
-                ->component('results/index', false)
-                ->where('latestImport.id', $latestImport->id)
-                ->where('latestImport.status', 'queued'));
+                ->component('settings/notion-backup', false)
+                ->where('latestRestore.id', $latestRestore->id)
+                ->where('latestRestore.status', 'queued'));
     }
 
     public function test_existing_date_is_not_generated_again(): void
@@ -84,6 +83,7 @@ class WallpaperWorkflowTest extends TestCase
 
     public function test_vnd_must_be_non_negative_integer_and_zero_is_valid(): void
     {
+        config(['lucky.notion.token' => 'test']);
         Queue::fake();
         $user = User::factory()->create();
         $wallpaper = Wallpaper::factory()->create();
@@ -97,6 +97,27 @@ class WallpaperWorkflowTest extends TestCase
 
         $this->assertDatabaseHas('wallpapers', ['id' => $wallpaper->id, 'prize_vnd' => 0]);
         Queue::assertPushed(SyncWallpaperResultToNotion::class, 1);
+    }
+
+    public function test_result_is_saved_without_queuing_backup_when_notion_is_not_configured(): void
+    {
+        config(['lucky.notion.token' => null]);
+        Queue::fake();
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create(['prize_vnd' => null]);
+
+        $this->actingAs($user)
+            ->from('/results?date='.$wallpaper->target_date->format('Y-m-d'))
+            ->put("/wallpapers/{$wallpaper->id}/result", ['prize_vnd' => '1000'])
+            ->assertRedirect('/results?date='.$wallpaper->target_date->format('Y-m-d'))
+            ->assertSessionHas(
+                'status',
+                '実績をサーバーに保存しました。Notionバックアップは未設定のため実行していません。',
+            );
+
+        $this->assertDatabaseHas('wallpapers', ['id' => $wallpaper->id, 'prize_vnd' => 1000]);
+        $this->assertDatabaseCount('sync_runs', 0);
+        Queue::assertNotPushed(SyncWallpaperResultToNotion::class);
     }
 
     public function test_unauthenticated_download_is_rejected(): void

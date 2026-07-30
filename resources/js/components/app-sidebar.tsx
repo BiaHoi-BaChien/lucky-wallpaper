@@ -29,7 +29,7 @@ const mainNavItems: NavItem[] = [
         icon: ChartNoAxesCombined,
     },
     {
-        title: 'アカウント・パスキー',
+        title: '設定',
         url: route('passkeys.index'),
         icon: Settings,
     },
