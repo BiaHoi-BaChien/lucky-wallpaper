@@ -49,6 +49,7 @@ export default function ShowWallpaper({
     const { operation } = useOperation(latestApiRun);
     const active = operation && ['queued', 'running'].includes(operation.status);
     const current = wallpaper.proposals.find((proposal) => proposal.status === 'proposed') ?? wallpaper.proposals[0];
+    const details = current ?? (hasCompositionDetails(wallpaper) ? wallpaper : null);
 
     return (
         <AppLayout
@@ -75,21 +76,23 @@ export default function ShowWallpaper({
                         <AlertDescription>エラーコード: {operation.error_code}</AlertDescription>
                     </Alert>
                 )}
-                {current && (
+                {details && (
                     <Card>
                         <CardHeader>
-                            <CardTitle>{current.conclusion}</CardTitle>
-                            <p className="text-muted-foreground text-sm">
-                                案 #{current.sequence}・{proposalStatusLabel(current.status)}
-                            </p>
+                            <CardTitle>{details.conclusion || details.title || '構図の詳細'}</CardTitle>
+                            {current && (
+                                <p className="text-muted-foreground text-sm">
+                                    案 #{current.sequence}・{proposalStatusLabel(current.status)}
+                                </p>
+                            )}
                         </CardHeader>
                         <CardContent className="space-y-5">
-                            <Section title="概要" body={current.overview} />
-                            <Section title="配置" body={current.composition} />
-                            <Section title="色彩・五行" body={current.color_wu_xing} />
-                            <Section title="象徴意図" body={current.symbolism} />
+                            <Section title={!current && details.overview === details.composition ? '構図の詳細' : '概要'} body={details.overview} />
+                            {details.composition !== details.overview && <Section title="配置" body={details.composition} />}
+                            <Section title="色彩・五行" body={details.color_wu_xing} />
+                            <Section title="象徴意図" body={details.symbolism} />
                             <div className="flex flex-wrap gap-3">
-                                {current.status === 'proposed' && (
+                                {current?.status === 'proposed' && (
                                     <>
                                         <Button
                                             disabled={Boolean(active)}
@@ -108,7 +111,7 @@ export default function ShowWallpaper({
                                         </Button>
                                     </>
                                 )}
-                                {current.status === 'approved' && wallpaper.state !== 'generated' && (
+                                {current?.status === 'approved' && wallpaper.state !== 'generated' && (
                                     <Button
                                         disabled={Boolean(active)}
                                         onClick={() =>
@@ -133,7 +136,7 @@ export default function ShowWallpaper({
                         </CardContent>
                     </Card>
                 )}
-                {!current && !active && (
+                {!details && !active && (
                     <Button onClick={() => router.post(route('wallpapers.repropose', { wallpaper: wallpaper.id }))}>構図提案を再試行</Button>
                 )}
                 {wallpaper.warnings && wallpaper.warnings.length > 0 && (
@@ -151,7 +154,17 @@ export default function ShowWallpaper({
     );
 }
 
-function Section({ title, body }: { title: string; body: string }) {
+function hasCompositionDetails(wallpaper: Wallpaper): boolean {
+    return [wallpaper.title, wallpaper.conclusion, wallpaper.overview, wallpaper.composition, wallpaper.color_wu_xing, wallpaper.symbolism].some(
+        (value) => value !== null && value.trim() !== '',
+    );
+}
+
+function Section({ title, body }: { title: string; body: string | null }) {
+    if (body === null || body.trim() === '') {
+        return null;
+    }
+
     return (
         <section>
             <h2 className="mb-1 font-semibold">{title}</h2>
