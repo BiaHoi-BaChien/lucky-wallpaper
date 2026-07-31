@@ -1,3 +1,4 @@
+import { ClipboardCopyButton } from '@/components/clipboard-copy-button';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -10,7 +11,7 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
-import { Check, Copy, Download, LoaderCircle } from 'lucide-react';
+import { Download, LoaderCircle } from 'lucide-react';
 import { useState } from 'react';
 
 export type ExecutionMode = 'manual' | 'api';
@@ -61,16 +62,6 @@ export function ExecutionModeSelector({
 }
 
 export function ManualPromptPanel({ prompt, title }: { prompt: ManualPrompt; title: string }) {
-    const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle');
-
-    const copy = async () => {
-        try {
-            await navigator.clipboard.writeText(prompt.prompt);
-            setCopyStatus('copied');
-        } catch {
-            setCopyStatus('error');
-        }
-    };
     const download = () => {
         const url = URL.createObjectURL(new Blob([prompt.prompt], { type: 'text/plain;charset=utf-8' }));
         const link = document.createElement('a');
@@ -85,10 +76,7 @@ export function ManualPromptPanel({ prompt, title }: { prompt: ManualPrompt; tit
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-medium">{title}</h3>
                 <div className="flex gap-2">
-                    <Button type="button" size="sm" variant="outline" onClick={copy}>
-                        {copyStatus === 'copied' ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-                        {copyStatus === 'copied' ? 'コピー済み' : 'コピー'}
-                    </Button>
+                    <ClipboardCopyButton value={prompt.prompt} label={title} variant="outline" className="size-9" />
                     <Button type="button" size="sm" variant="outline" onClick={download}>
                         <Download aria-hidden="true" />
                         ダウンロード
@@ -96,9 +84,6 @@ export function ManualPromptPanel({ prompt, title }: { prompt: ManualPrompt; tit
                 </div>
             </div>
             <Textarea readOnly value={prompt.prompt} rows={12} className="font-mono text-xs leading-5" aria-label={title} />
-            <span className="sr-only" role="status" aria-live="polite">
-                {copyStatus === 'copied' ? 'プロンプトをコピーしました' : copyStatus === 'error' ? 'プロンプトをコピーできませんでした' : ''}
-            </span>
         </section>
     );
 }
