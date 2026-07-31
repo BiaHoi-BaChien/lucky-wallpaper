@@ -61,6 +61,7 @@ class WallpaperController extends Controller
     ): RedirectResponse {
         $validated = $request->validate([
             'target_date' => ['required', 'date_format:Y-m-d'],
+            'api_confirmed' => ['accepted'],
         ]);
 
         $result = DB::transaction(function () use ($validated, $analysisService): array {
@@ -126,9 +127,11 @@ class WallpaperController extends Controller
     }
 
     public function repropose(
+        Request $request,
         Wallpaper $wallpaper,
         HistoricalAnalysisService $analysisService,
     ): RedirectResponse {
+        $request->validate(['api_confirmed' => ['accepted']]);
         if ($analysisService->currentSnapshot() === null) {
             throw ValidationException::withMessages([
                 'proposal' => '壁紙履歴が更新されています。最新の傾向分析を実行してから再提案してください。',
@@ -156,6 +159,7 @@ class WallpaperController extends Controller
     {
         $validated = $request->validate([
             'proposal_id' => ['nullable', 'integer'],
+            'api_confirmed' => ['accepted'],
         ]);
         if ($this->hasLocalImage($wallpaper)) {
             return back();

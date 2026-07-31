@@ -1,13 +1,23 @@
+import {
+    ApiConfirmationButton,
+    ExecutionMode,
+    ExecutionModeSelector,
+    fetchManualPrompt,
+    ManualPrompt,
+    ManualPromptPanel,
+} from '@/components/ai-workflow-controls';
 import InputError from '@/components/input-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Operation, useOperation } from '@/hooks/use-operation';
 import AppLayout from '@/layouts/app-layout';
 import { wallpaperStateLabel } from '@/lib/wallpaper-state';
+import { SharedData } from '@/types';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
 import { ChevronDown, LoaderCircle } from 'lucide-react';
 import { FormEvent, ReactNode, useState } from 'react';
@@ -44,29 +54,82 @@ export default function CreateWallpaper({
     analysis: Analysis | null;
     latestAnalysisRun: Operation | null;
 }) {
-    const form = useForm({ target_date: selectedDate || defaultDate });
-    const analysisForm = useForm({});
+    const targetDate = selectedDate || defaultDate;
+    const apiProposalForm = useForm({ target_date: targetDate, api_confirmed: true });
+    const apiAnalysisForm = useForm({ api_confirmed: true });
+    const manualAnalysisForm = useForm({ analysis_markdown: '', data_hash: '', prompt_hash: '' });
+    const manualProposalForm = useForm({ target_date: targetDate, proposal_json: '', prompt_hash: '' });
+    const { flash } = usePage<SharedData>().props;
     const { operation: analysisOperation } = useOperation(latestAnalysisRun);
-    const page = usePage<{ errors: { analysis?: string; proposal?: string } }>();
     const analysisActive = ['queued', 'running'].includes(analysisOperation?.status ?? '');
     const analysisIsLatest = analysis?.is_latest ?? false;
     const [analysisExpanded, setAnalysisExpanded] = useState(true);
+    const [analysisMode, setAnalysisMode] = useState<ExecutionMode>('manual');
+    const [proposalMode, setProposalMode] = useState<ExecutionMode>('manual');
+    const [analysisPrompt, setAnalysisPrompt] = useState<ManualPrompt>();
+    const [proposalPrompt, setProposalPrompt] = useState<ManualPrompt>();
+    const [analysisPromptLoading, setAnalysisPromptLoading] = useState(false);
+    const [proposalPromptLoading, setProposalPromptLoading] = useState(false);
+    const [analysisPromptError, setAnalysisPromptError] = useState<string>();
+    const [proposalPromptError, setProposalPromptError] = useState<string>();
 
-    const submit = (event: FormEvent) => {
-        event.preventDefault();
-        form.post(route('wallpapers.proposals.store'));
+    const loadAnalysisPrompt = async () => {
+        setAnalysisPromptLoading(true);
+        setAnalysisPromptError(undefined);
+        try {
+            const prompt = await fetchManualPrompt(route('wallpaper-analyses.manual-prompt'));
+            setAnalysisPrompt(prompt);
+            manualAnalysisForm.setData({
+                analysis_markdown: prompt.default_result ?? '',
+                data_hash: prompt.context_hash,
+                prompt_hash: prompt.prompt_hash,
+            });
+        } catch (error) {
+            setAnalysisPromptError(error instanceof Error ? error.message : 'プロンプトを取得できませんでした。');
+        } finally {
+            setAnalysisPromptLoading(false);
+        }
     };
 
-    const analyze = () => {
-        analysisForm.post(route('wallpaper-analyses.store'), {
-            preserveScroll: true,
-        });
+    const saveAnalysis = (event: FormEvent) => {
+        event.preventDefault();
+        manualAnalysisForm.post(route('wallpaper-analyses.manual-result'), { preserveScroll: true });
+    };
+
+    const loadProposalPrompt = async () => {
+        setProposalPromptLoading(true);
+        setProposalPromptError(undefined);
+        try {
+            const prompt = await fetchManualPrompt(route('wallpapers.proposals.manual-prompt', { target_date: manualProposalForm.data.target_date }));
+            setProposalPrompt(prompt);
+            manualProposalForm.setData('prompt_hash', prompt.prompt_hash);
+        } catch (error) {
+            setProposalPromptError(error instanceof Error ? error.message : 'プロンプトを取得できませんでした。');
+        } finally {
+            setProposalPromptLoading(false);
+        }
+    };
+
+    const saveProposal = (event: FormEvent) => {
+        event.preventDefault();
+        manualProposalForm.post(route('wallpapers.proposals.manual-result'));
+    };
+
+    const changeDate = (value: string) => {
+        apiProposalForm.setData('target_date', value);
+        manualProposalForm.setData('target_date', value);
+        manualProposalForm.setData('proposal_json', '');
+        manualProposalForm.setData('prompt_hash', '');
+        setProposalPrompt(undefined);
+        setProposalPromptError(undefined);
+        router.get(route('wallpapers.create'), { date: value }, { preserveState: true, replace: true });
     };
 
     return (
         <AppLayout breadcrumbs={[{ title: '壁紙作成', href: route('wallpapers.create') }]}>
             <Head title="壁紙作成" />
             <div className="max-w-4xl space-y-6 p-4">
+                {flash.status && <Alert>{flash.status}</Alert>}
                 <Card>
                     <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
                         <div className="min-w-0 space-y-1.5">
@@ -97,16 +160,25 @@ export default function CreateWallpaper({
                     </CardHeader>
                     {analysisExpanded && (
                         <CardContent id="wallpaper-analysis-content" className="space-y-4">
+                            <ExecutionModeSelector value={analysisMode} onChange={setAnalysisMode} disabled={analysisActive} />
                             <div className="flex flex-wrap items-center gap-3">
-                                <Button
-                                    type="button"
-                                    variant={analysisIsLatest ? 'outline' : 'default'}
-                                    disabled={analysisActive || analysisIsLatest || analysisForm.processing}
-                                    onClick={analyze}
-                                >
-                                    {analysisActive && <LoaderCircle className="size-4 animate-spin" />}
-                                    {analysisIsLatest ? '既に最新です' : analysisActive ? '傾向分析中' : '傾向分析'}
-                                </Button>
+                                {analysisMode === 'manual' ? (
+                                    <Button type="button" disabled={analysisActive || analysisPromptLoading} onClick={loadAnalysisPrompt}>
+                                        {analysisPromptLoading && <LoaderCircle className="animate-spin" aria-hidden="true" />}
+                                        {analysisPromptLoading ? '作成中' : analysis ? '再分析プロンプトを作成' : '分析プロンプトを作成'}
+                                    </Button>
+                                ) : (
+                                    <ApiConfirmationButton
+                                        label={analysis ? 'APIで再分析' : 'APIで傾向分析'}
+                                        processingLabel="傾向分析中"
+                                        processing={analysisActive || apiAnalysisForm.processing}
+                                        onConfirm={() =>
+                                            apiAnalysisForm.post(route('wallpaper-analyses.store'), {
+                                                preserveScroll: true,
+                                            })
+                                        }
+                                    />
+                                )}
                                 {analysis && (
                                     <span className="text-muted-foreground text-sm">
                                         対象 {analysis.statistics?.records ?? 0}件
@@ -114,12 +186,42 @@ export default function CreateWallpaper({
                                     </span>
                                 )}
                             </div>
+                            <InputError message={analysisPromptError ?? apiAnalysisForm.errors.api_confirmed} />
 
-                            <InputError message={page.props.errors.analysis} />
+                            {analysisPrompt && analysisMode === 'manual' && (
+                                <>
+                                    <ManualPromptPanel prompt={analysisPrompt} title="傾向分析プロンプト" />
+                                    <form onSubmit={saveAnalysis} className="space-y-3 border-t pt-4">
+                                        <div className="space-y-2">
+                                            <Label htmlFor="analysis_markdown">ChatGPTの分析結果</Label>
+                                            <Textarea
+                                                id="analysis_markdown"
+                                                rows={12}
+                                                value={manualAnalysisForm.data.analysis_markdown}
+                                                onChange={(event) => manualAnalysisForm.setData('analysis_markdown', event.target.value)}
+                                                placeholder="ChatGPTから返されたMarkdownを貼り付けます"
+                                            />
+                                            <InputError message={manualAnalysisForm.errors.analysis_markdown} />
+                                        </div>
+                                        <Button
+                                            type="submit"
+                                            disabled={
+                                                manualAnalysisForm.processing ||
+                                                (!analysisPrompt.default_result && manualAnalysisForm.data.analysis_markdown.trim() === '')
+                                            }
+                                        >
+                                            {manualAnalysisForm.processing && <LoaderCircle className="animate-spin" aria-hidden="true" />}
+                                            {manualAnalysisForm.processing ? '保存中' : '分析結果を保存'}
+                                        </Button>
+                                    </form>
+                                </>
+                            )}
 
                             {analysisOperation?.status === 'failed' && (
                                 <Alert variant="destructive">
-                                    <AlertTitle>傾向分析に失敗しました。</AlertTitle>
+                                    <AlertTitle>
+                                        {analysisIsLatest ? '再分析に失敗しました。既存の分析結果は保持されています。' : '傾向分析に失敗しました。'}
+                                    </AlertTitle>
                                     <AlertDescription>エラーコード: {analysisOperation.error_code}</AlertDescription>
                                 </Alert>
                             )}
@@ -127,7 +229,7 @@ export default function CreateWallpaper({
                             {analysis && !analysisIsLatest && !analysisActive && (
                                 <Alert variant="warning">
                                     <AlertTitle>壁紙履歴が更新されています。</AlertTitle>
-                                    <AlertDescription>「傾向分析」を実行して、最新の履歴を反映してください。</AlertDescription>
+                                    <AlertDescription>傾向分析を実行して、最新の履歴を反映してください。</AlertDescription>
                                 </Alert>
                             )}
 
@@ -150,18 +252,13 @@ export default function CreateWallpaper({
                     <CardContent className="space-y-5">
                         <div className="space-y-2">
                             <Label htmlFor="target_date">対象日</Label>
-                            <div className="flex gap-3">
-                                <Input
-                                    id="target_date"
-                                    type="date"
-                                    value={form.data.target_date}
-                                    onChange={(e) => {
-                                        form.setData('target_date', e.target.value);
-                                        router.get(route('wallpapers.create'), { date: e.target.value }, { preserveState: true, replace: true });
-                                    }}
-                                />
-                            </div>
-                            <InputError message={form.errors.target_date} />
+                            <Input
+                                id="target_date"
+                                type="date"
+                                value={manualProposalForm.data.target_date}
+                                onChange={(event) => changeDate(event.target.value)}
+                            />
+                            <InputError message={manualProposalForm.errors.target_date ?? apiProposalForm.errors.target_date} />
                         </div>
                         {existing ? (
                             <Alert variant="warning">
@@ -176,13 +273,59 @@ export default function CreateWallpaper({
                                 </AlertDescription>
                             </Alert>
                         ) : (
-                            <form onSubmit={submit} className="space-y-2">
-                                <Button disabled={form.processing || !analysisIsLatest}>構図を提案してもらう</Button>
+                            <div className="space-y-4">
+                                <ExecutionModeSelector value={proposalMode} onChange={setProposalMode} />
+                                {proposalMode === 'manual' ? (
+                                    <>
+                                        <Button type="button" disabled={!analysisIsLatest || proposalPromptLoading} onClick={loadProposalPrompt}>
+                                            {proposalPromptLoading && <LoaderCircle className="animate-spin" aria-hidden="true" />}
+                                            {proposalPromptLoading ? '作成中' : '構図提案プロンプトを作成'}
+                                        </Button>
+                                        <InputError message={proposalPromptError} />
+                                        {proposalPrompt && (
+                                            <>
+                                                <ManualPromptPanel prompt={proposalPrompt} title="構図提案プロンプト" />
+                                                <form onSubmit={saveProposal} className="space-y-3 border-t pt-4">
+                                                    <div className="space-y-2">
+                                                        <Label htmlFor="proposal_json">ChatGPTの構図提案JSON</Label>
+                                                        <Textarea
+                                                            id="proposal_json"
+                                                            rows={12}
+                                                            value={manualProposalForm.data.proposal_json}
+                                                            onChange={(event) => manualProposalForm.setData('proposal_json', event.target.value)}
+                                                            placeholder="ChatGPTから返されたJSONを貼り付けます"
+                                                        />
+                                                        <InputError message={manualProposalForm.errors.proposal_json} />
+                                                    </div>
+                                                    <Button
+                                                        type="submit"
+                                                        disabled={
+                                                            manualProposalForm.processing || manualProposalForm.data.proposal_json.trim() === ''
+                                                        }
+                                                    >
+                                                        {manualProposalForm.processing && (
+                                                            <LoaderCircle className="animate-spin" aria-hidden="true" />
+                                                        )}
+                                                        {manualProposalForm.processing ? '保存中' : '構図提案を保存'}
+                                                    </Button>
+                                                </form>
+                                            </>
+                                        )}
+                                    </>
+                                ) : (
+                                    <ApiConfirmationButton
+                                        label="APIで構図を提案"
+                                        processingLabel="提案を開始中"
+                                        processing={apiProposalForm.processing}
+                                        disabled={!analysisIsLatest}
+                                        onConfirm={() => apiProposalForm.post(route('wallpapers.proposals.store'))}
+                                    />
+                                )}
                                 {!analysisIsLatest && (
                                     <p className="text-muted-foreground text-sm">構図提案の前に、最新の傾向分析を完了してください。</p>
                                 )}
-                                <InputError message={page.props.errors.proposal} />
-                            </form>
+                                <InputError message={apiProposalForm.errors.api_confirmed} />
+                            </div>
                         )}
                     </CardContent>
                 </Card>

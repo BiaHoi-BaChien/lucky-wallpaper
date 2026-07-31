@@ -13,6 +13,7 @@ use App\Models\Wallpaper;
 use App\Services\HistoricalAnalysisService;
 use App\Services\ImageService;
 use App\Services\OpenAiClient;
+use App\Services\WallpaperPromptService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -67,7 +68,7 @@ class WallpaperWorkflowTest extends TestCase
         $user = User::factory()->create();
         $wallpaper = Wallpaper::factory()->create(['target_date' => '2026-08-01']);
 
-        $this->actingAs($user)->post('/wallpapers/proposals', ['target_date' => '2026-08-01'])
+        $this->actingAs($user)->post('/wallpapers/proposals', ['target_date' => '2026-08-01', 'api_confirmed' => true])
             ->assertRedirect('/wallpapers/'.$wallpaper->id);
 
         Queue::assertNotPushed(GenerateCompositionProposal::class);
@@ -80,7 +81,7 @@ class WallpaperWorkflowTest extends TestCase
         $user = User::factory()->create();
         $this->createCurrentAnalysis();
 
-        $this->actingAs($user)->post('/wallpapers/proposals', ['target_date' => '2026-08-02'])
+        $this->actingAs($user)->post('/wallpapers/proposals', ['target_date' => '2026-08-02', 'api_confirmed' => true])
             ->assertRedirect();
 
         Queue::assertPushed(GenerateCompositionProposal::class, 1);
@@ -190,7 +191,7 @@ class WallpaperWorkflowTest extends TestCase
         ]);
 
         $this->actingAs($user)
-            ->post("/wallpapers/{$wallpaper->id}/image")
+            ->post("/wallpapers/{$wallpaper->id}/image", ['api_confirmed' => true])
             ->assertRedirect()
             ->assertSessionHasNoErrors();
 
@@ -222,7 +223,7 @@ class WallpaperWorkflowTest extends TestCase
         ]);
 
         $this->actingAs($user)
-            ->post("/wallpapers/{$wallpaper->id}/image")
+            ->post("/wallpapers/{$wallpaper->id}/image", ['api_confirmed' => true])
             ->assertSessionHasErrors('image');
 
         Queue::assertNotPushed(GenerateWallpaperImage::class);
@@ -248,7 +249,7 @@ class WallpaperWorkflowTest extends TestCase
         ]);
 
         $this->actingAs($user)
-            ->post("/wallpapers/{$wallpaper->id}/image")
+            ->post("/wallpapers/{$wallpaper->id}/image", ['api_confirmed' => true])
             ->assertSessionHasErrors('image');
 
         Queue::assertNotPushed(GenerateWallpaperImage::class);
@@ -297,7 +298,11 @@ class WallpaperWorkflowTest extends TestCase
                 'sha256' => str_repeat('c', 64),
             ]);
 
-        (new GenerateWallpaperImage($wallpaper->id, null, $run->id))->handle($openAi, $images);
+        (new GenerateWallpaperImage($wallpaper->id, null, $run->id))->handle(
+            $openAi,
+            $images,
+            app(WallpaperPromptService::class),
+        );
 
         $this->assertDatabaseHas('wallpapers', [
             'id' => $wallpaper->id,

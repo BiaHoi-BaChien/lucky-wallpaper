@@ -21,6 +21,7 @@ class GenerateHistoricalAnalysis implements ShouldQueue
     public function __construct(
         public readonly int $snapshotId,
         public readonly string $apiRunId,
+        public readonly bool $preserveExistingResult = false,
     ) {
         $this->onQueue('openai');
     }
@@ -30,7 +31,9 @@ class GenerateHistoricalAnalysis implements ShouldQueue
         $snapshot = AnalysisSnapshot::query()->findOrFail($this->snapshotId);
         $run = ApiRun::query()->findOrFail($this->apiRunId);
 
-        $snapshot->update(['status' => 'running']);
+        if (! $this->preserveExistingResult) {
+            $snapshot->update(['status' => 'running']);
+        }
         $run->update([
             'status' => 'running',
             'started_at' => now(),
@@ -48,7 +51,9 @@ class GenerateHistoricalAnalysis implements ShouldQueue
 
     public function failed(?Throwable $exception): void
     {
-        AnalysisSnapshot::query()->whereKey($this->snapshotId)->update(['status' => 'failed']);
+        if (! $this->preserveExistingResult) {
+            AnalysisSnapshot::query()->whereKey($this->snapshotId)->update(['status' => 'failed']);
+        }
         ApiRun::query()->whereKey($this->apiRunId)->update([
             'status' => 'failed',
             'error_code' => $exception instanceof ExternalApiException ? $exception->errorCode : 'historical_analysis_job_failed',

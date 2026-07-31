@@ -10,6 +10,22 @@ use Illuminate\Support\Collection;
 
 class HistoricalAnalysisService
 {
+    private const EMPTY_SUMMARY = <<<'MARKDOWN'
+# 高額当選壁紙の傾向分析
+
+## 対象データ
+
+構図と当選金額が登録された壁紙履歴はまだありません。
+
+## 構図提案への活用指針
+
+過去傾向を参照できないため、新規性と画風のローテーションを優先します。
+
+## 注意点
+
+この分析は過去実績との相関を扱うもので、当選や当選確率の向上を保証するものではありません。
+MARKDOWN;
+
     public function __construct(private readonly OpenAiClient $openAi) {}
 
     public function currentDataHash(): string
@@ -74,21 +90,7 @@ class HistoricalAnalysisService
         }
 
         if ($summaries === []) {
-            $summary = <<<'MARKDOWN'
-# 高額当選壁紙の傾向分析
-
-## 対象データ
-
-構図と当選金額が登録された壁紙履歴はまだありません。
-
-## 構図提案への活用指針
-
-過去傾向を参照できないため、新規性と画風のローテーションを優先します。
-
-## 注意点
-
-この分析は過去実績との相関を扱うもので、当選や当選確率の向上を保証するものではありません。
-MARKDOWN;
+            $summary = self::EMPTY_SUMMARY;
         } elseif (count($summaries) === 1) {
             $summary = $summaries[0];
         } else {
@@ -112,13 +114,9 @@ MARKDOWN;
         }
 
         $snapshot->update([
+            'model' => config('lucky.openai.text_model'),
             'summary' => $summary,
-            'statistics' => [
-                'records' => $records->count(),
-                'chunks' => count($summaries),
-                'max_prize_vnd' => $records->max('prize_vnd'),
-                'high_prize_threshold_vnd' => $this->highPrizeThreshold($records),
-            ],
+            'statistics' => $this->statistics($records, count($summaries)),
             'status' => hash_equals($snapshot->data_hash, $this->currentDataHash()) ? 'succeeded' : 'invalidated',
         ]);
 
@@ -178,6 +176,68 @@ MARKDOWN;
         return $chunks;
     }
 
+    /**
+     * @return array{
+     *     prompt: string,
+     *     prompt_hash: string,
+     *     context_hash: string,
+     *     filename: string,
+     *     default_result: string|null
+     * }
+     */
+    public function manualPrompt(): array
+    {
+        $records = $this->records();
+        $dataHash = $this->dataHash($records);
+        $rows = collect($this->chunks($records))->flatten(1)->values()->all();
+        $input = json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
+        $prompt = $this->chunkInstructions().<<<PROMPT
+
+
+以下は分析対象の全データです。チャンク分割や追加質問は行わず、全体を一括して分析してください。
+回答は「# 高額当選壁紙の傾向分析」から始まる日本語Markdown本文だけにしてください。JSONやコードフェンスは使用しないでください。
+
+分析対象データ（JSON）:
+{$input}
+PROMPT;
+
+        return [
+            'prompt' => $prompt,
+            'prompt_hash' => hash('sha256', config('lucky.openai.prompt_version').'|'.$prompt),
+            'context_hash' => $dataHash,
+            'filename' => 'wallpaper-analysis-'.substr($dataHash, 0, 12).'.txt',
+            'default_result' => $records->isEmpty() ? self::EMPTY_SUMMARY : null,
+        ];
+    }
+
+    public function saveManualResult(string $markdown, string $dataHash, string $promptHash): AnalysisSnapshot
+    {
+        $prompt = $this->manualPrompt();
+        if (
+            ! hash_equals($prompt['context_hash'], $dataHash)
+            || ! hash_equals($prompt['prompt_hash'], $promptHash)
+        ) {
+            throw new ExternalApiException('historical_analysis_stale_input', false);
+        }
+
+        $records = $this->records();
+        $summary = $records->isEmpty()
+            ? self::EMPTY_SUMMARY
+            : $this->normalizeMarkdown($markdown);
+        $snapshot = AnalysisSnapshot::query()->firstOrNew([
+            'data_hash' => $dataHash,
+            'prompt_version' => (string) config('lucky.openai.prompt_version'),
+        ]);
+        $snapshot->fill([
+            'model' => 'chatgpt-manual',
+            'summary' => $summary,
+            'statistics' => $this->statistics($records, $records->isEmpty() ? 0 : 1),
+            'status' => 'succeeded',
+        ])->save();
+
+        return $snapshot->refresh();
+    }
+
     private function summarySchema(): array
     {
         return [
@@ -211,6 +271,16 @@ MARKDOWN;
         }
 
         return $markdown;
+    }
+
+    private function statistics(Collection $records, int $chunks): array
+    {
+        return [
+            'records' => $records->count(),
+            'chunks' => $chunks,
+            'max_prize_vnd' => $records->max('prize_vnd'),
+            'high_prize_threshold_vnd' => $this->highPrizeThreshold($records),
+        ];
     }
 
     private function chunkInstructions(): string
