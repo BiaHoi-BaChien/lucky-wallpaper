@@ -6,6 +6,7 @@ import {
     ManualPrompt,
     ManualPromptPanel,
 } from '@/components/ai-workflow-controls';
+import { ClipboardCopyButton } from '@/components/clipboard-copy-button';
 import InputError from '@/components/input-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -13,14 +14,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { DeleteWallpaperDialog, DeleteWallpaperImageDialog } from '@/components/wallpaper-delete-dialogs';
 import { Operation, useOperation } from '@/hooks/use-operation';
 import AppLayout from '@/layouts/app-layout';
 import { proposalStatusLabel, wallpaperStateLabel } from '@/lib/wallpaper-state';
 import { SharedData } from '@/types';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
-import { ArchiveRestore, Check, Copy, Download, LoaderCircle } from 'lucide-react';
+import { ArchiveRestore, Download, LoaderCircle } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 
 interface Proposal {
@@ -182,7 +182,7 @@ export default function ShowWallpaper({
                         <CardHeader>
                             <div className="flex items-start justify-between gap-3">
                                 <CardTitle className="min-w-0 break-words">{displayedTitle}</CardTitle>
-                                <CopyButton value={displayedTitle} label="壁紙のタイトル" />
+                                <ClipboardCopyButton value={displayedTitle} label="壁紙のタイトル" className="-m-2" />
                             </div>
                             {current && (
                                 <p className="text-muted-foreground text-sm">
@@ -217,7 +217,9 @@ export default function ShowWallpaper({
                                 <div className="space-y-5">
                                     <div className="flex items-center justify-between gap-3">
                                         <h2 className="font-semibold">構図の詳細</h2>
-                                        {compositionDetails !== '' && <CopyButton value={compositionDetails} label="構図の詳細" />}
+                                        {compositionDetails !== '' && (
+                                            <ClipboardCopyButton value={compositionDetails} label="構図の詳細" className="-m-2" />
+                                        )}
                                     </div>
                                     <Section
                                         title={!current && details.overview === details.composition ? undefined : '概要'}
@@ -421,38 +423,5 @@ function Section({ title, body }: { title?: string; body: string | null }) {
             {title && <h3 className="mb-1 font-semibold">{title}</h3>}
             <p className="text-sm leading-6 whitespace-pre-wrap">{body}</p>
         </section>
-    );
-}
-
-function CopyButton({ value, label }: { value: string; label: string }) {
-    const [status, setStatus] = useState<'idle' | 'copied' | 'error'>('idle');
-    const actionLabel =
-        status === 'copied' ? `${label}をコピーしました` : status === 'error' ? `${label}をコピーできませんでした` : `${label}をコピー`;
-
-    const copy = async () => {
-        try {
-            await navigator.clipboard.writeText(value);
-            setStatus('copied');
-        } catch {
-            setStatus('error');
-        }
-    };
-
-    return (
-        <>
-            <TooltipProvider delayDuration={300}>
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button type="button" variant="ghost" size="icon" className="-m-2 shrink-0" aria-label={`${label}をコピー`} onClick={copy}>
-                            {status === 'copied' ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{actionLabel}</TooltipContent>
-                </Tooltip>
-            </TooltipProvider>
-            <span className="sr-only" role="status" aria-live="polite">
-                {status === 'idle' ? '' : actionLabel}
-            </span>
-        </>
     );
 }
