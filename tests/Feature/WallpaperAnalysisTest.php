@@ -8,9 +8,9 @@ use App\Models\AnalysisSnapshot;
 use App\Models\ApiRun;
 use App\Models\User;
 use App\Models\Wallpaper;
-use App\Services\CalendarContextService;
 use App\Services\HistoricalAnalysisService;
 use App\Services\OpenAiClient;
+use App\Services\WallpaperPromptService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -29,7 +29,7 @@ class WallpaperAnalysisTest extends TestCase
         Wallpaper::factory()->create(['prize_vnd' => 1_000_000]);
 
         $this->actingAs($user)
-            ->post('/wallpaper-analyses')
+            ->post('/wallpaper-analyses', ['api_confirmed' => true])
             ->assertRedirect();
 
         $snapshot = AnalysisSnapshot::query()->sole();
@@ -45,7 +45,7 @@ class WallpaperAnalysisTest extends TestCase
         Queue::assertPushed(GenerateHistoricalAnalysis::class, 1);
     }
 
-    public function test_latest_analysis_is_displayed_and_is_not_queued_again(): void
+    public function test_latest_analysis_is_displayed_and_can_be_queued_again(): void
     {
         Queue::fake();
         $user = User::factory()->create();
@@ -59,10 +59,20 @@ class WallpaperAnalysisTest extends TestCase
                 ->where('analysis.markdown', $snapshot->summary)
                 ->where('analysis.is_latest', true));
 
-        $this->actingAs($user)->post('/wallpaper-analyses')->assertRedirect();
+        $this->actingAs($user)
+            ->post('/wallpaper-analyses', ['api_confirmed' => true])
+            ->assertRedirect();
 
-        Queue::assertNotPushed(GenerateHistoricalAnalysis::class);
+        Queue::assertPushed(
+            GenerateHistoricalAnalysis::class,
+            fn (GenerateHistoricalAnalysis $job): bool => $job->preserveExistingResult,
+        );
         $this->assertDatabaseCount('analysis_snapshots', 1);
+        $this->assertDatabaseHas('analysis_snapshots', [
+            'id' => $snapshot->id,
+            'status' => 'succeeded',
+            'summary' => $snapshot->summary,
+        ]);
     }
 
     public function test_new_proposal_requires_latest_analysis(): void
@@ -72,7 +82,7 @@ class WallpaperAnalysisTest extends TestCase
 
         $this->actingAs($user)
             ->from('/wallpapers/create')
-            ->post('/wallpapers/proposals', ['target_date' => '2026-08-03'])
+            ->post('/wallpapers/proposals', ['target_date' => '2026-08-03', 'api_confirmed' => true])
             ->assertRedirect('/wallpapers/create')
             ->assertSessionHasErrors([
                 'proposal' => '最新の傾向分析を実行してから構図を提案してください。',
@@ -155,8 +165,7 @@ class WallpaperAnalysisTest extends TestCase
         ]);
 
         (new GenerateCompositionProposal($wallpaper->id, $run->id))->handle(
-            app(HistoricalAnalysisService::class),
-            app(CalendarContextService::class),
+            app(WallpaperPromptService::class),
             app(OpenAiClient::class),
         );
 

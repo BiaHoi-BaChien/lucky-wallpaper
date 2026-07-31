@@ -11,7 +11,7 @@
 - MySQL / DBキュー
 - Laravel Passkeys（WebAuthn）
 - Notion API `2026-03-11`
-- OpenAI Responses API / Image API
+- OpenAI Responses API / Image API（画面で明示的に選択した場合のみ）
 
 ReactはViteで事前ビルドし、SSRや本番Nodeプロセスを使用しません。
 
@@ -39,6 +39,10 @@ WALLPAPER_DELETE_AFTER_NOTION_BACKUP=true
 
 `NOTION_TOKEN`は任意です。未設定でも実績登録、壁紙作成、履歴管理などのサーバー機能は利用できますが、Notionへのバックアップとバックアップからの復元は利用できません。`WALLPAPER_DELETE_AFTER_NOTION_BACKUP=true`の場合は、バックアップ成功後にサーバー上の画像を削除するため、バックアップ済み画像のダウンロードにはNotion接続が必要です。`false`にすると、バックアップ後もサーバー上の画像を保持します。
 
+`OPENAI_API_KEY`も任意です。壁紙作成画面では各工程の初期値が「手動（ChatGPT）」になり、プロンプトをコピーまたはテキストファイルでダウンロードできます。ChatGPTの分析結果はMarkdown、構図提案はJSONとして貼り付け、作成画像はJPEG・PNG・WebP形式（最大20MB）でアップロードします。APIを選択した場合だけ確認画面を経てOpenAI APIへ送信します。
+
+手動画像アップロードを利用する環境では、PHPの`upload_max_filesize`と`post_max_size`を20MBより大きい値に設定してください。
+
 復元は前回の成功時刻以降に更新されたNotion実績を対象とし、サーバーに存在する実績は上書きしません。
 サーバー上の履歴データを削除しても、Notionバックアップは削除・変更されません。
 
@@ -56,10 +60,15 @@ php artisan serve
 
 - `GET /settings/notion-backup`: Notionバックアップと復元の設定画面
 - `POST /notion-syncs`: Notionバックアップから実績情報を非同期復元
-- `POST /wallpaper-analyses`: 高額当選壁紙の傾向分析をOpenAIキューへ登録
-- `POST /wallpapers/proposals`: 対象日の構図提案
-- `POST /wallpapers/{id}/repropose`: 同日の過去案を除外して再提案
-- `POST /wallpapers/{id}/image`: 承認案から画像生成
+- `GET /wallpaper-analyses/manual-prompt`: 手動傾向分析用プロンプトを取得
+- `POST /wallpaper-analyses/manual-result`: ChatGPTの傾向分析結果を保存
+- `POST /wallpaper-analyses`: 高額当選壁紙の傾向分析をOpenAIキューへ登録（明示確認必須）
+- `GET|POST /wallpapers/proposals/manual-*`: 対象日の手動構図提案プロンプト取得・結果保存
+- `POST /wallpapers/proposals`: 対象日の構図提案をOpenAIキューへ登録（明示確認必須）
+- `GET|POST /wallpapers/{id}/proposals/manual-*`: 同日の手動再提案プロンプト取得・結果保存
+- `POST /wallpapers/{id}/repropose`: 同日の過去案を除外してOpenAIで再提案（明示確認必須）
+- `GET|POST /wallpapers/{id}/image/manual-*`: 手動画像作成プロンプト取得・画像保存
+- `POST /wallpapers/{id}/image`: 承認案からOpenAIで画像生成（明示確認必須）
 - `POST /wallpapers/{id}/restore-image`: Notionバックアップの画像をサーバーへ復元
 - `GET /wallpapers/{id}/preview`: 認証済み画像プレビュー
 - `PUT /wallpapers/{id}/result`: VND賞金を保存し、設定済みの場合はNotionへバックアップ

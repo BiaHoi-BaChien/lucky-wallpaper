@@ -1,16 +1,27 @@
+import {
+    ApiConfirmationButton,
+    ExecutionMode,
+    ExecutionModeSelector,
+    fetchManualPrompt,
+    ManualPrompt,
+    ManualPromptPanel,
+} from '@/components/ai-workflow-controls';
 import InputError from '@/components/input-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { DeleteWallpaperDialog, DeleteWallpaperImageDialog } from '@/components/wallpaper-delete-dialogs';
 import { Operation, useOperation } from '@/hooks/use-operation';
 import AppLayout from '@/layouts/app-layout';
 import { proposalStatusLabel, wallpaperStateLabel } from '@/lib/wallpaper-state';
 import { SharedData } from '@/types';
-import { Head, router, usePage } from '@inertiajs/react';
-import { ArchiveRestore, Check, Copy, Download, ImagePlus, LoaderCircle } from 'lucide-react';
-import { useState } from 'react';
+import { Head, router, useForm, usePage } from '@inertiajs/react';
+import { ArchiveRestore, Check, Copy, Download, LoaderCircle } from 'lucide-react';
+import { FormEvent, useState } from 'react';
 
 interface Proposal {
     id: number;
@@ -54,8 +65,6 @@ export default function ShowWallpaper({
     downloadUnavailableReason: string | null;
 }) {
     const { flash } = usePage<SharedData>().props;
-    const [restoring, setRestoring] = useState(false);
-    const [restoreError, setRestoreError] = useState<string>();
     const { operation } = useOperation(latestApiRun);
     const active = operation && ['queued', 'running'].includes(operation.status);
     const current = wallpaper.proposals.find((proposal) => proposal.status === 'proposed') ?? wallpaper.proposals[0];
@@ -64,8 +73,23 @@ export default function ShowWallpaper({
     const compositionDetails = details ? formatCompositionDetails(details) : '';
     const canCreateImage = !localImageAvailable && current?.status === 'proposed';
     const canRestoreImage = !localImageAvailable && current?.status !== 'proposed';
-    const generateImage = () =>
-        router.post(route('wallpapers.image', { wallpaper: wallpaper.id }), current ? { proposal_id: current.id } : {}, { preserveScroll: true });
+    const [restoring, setRestoring] = useState(false);
+    const [restoreError, setRestoreError] = useState<string>();
+    const [proposalMode, setProposalMode] = useState<ExecutionMode>('manual');
+    const [imageMode, setImageMode] = useState<ExecutionMode>('manual');
+    const [proposalPrompt, setProposalPrompt] = useState<ManualPrompt>();
+    const [imagePrompt, setImagePrompt] = useState<ManualPrompt>();
+    const [proposalPromptLoading, setProposalPromptLoading] = useState(false);
+    const [imagePromptLoading, setImagePromptLoading] = useState(false);
+    const [proposalPromptError, setProposalPromptError] = useState<string>();
+    const [imagePromptError, setImagePromptError] = useState<string>();
+    const proposalForm = useForm({ proposal_json: '', prompt_hash: '' });
+    const imageForm = useForm<{ proposal_id: number | null; prompt_hash: string; image: File | null }>({
+        proposal_id: current?.id ?? null,
+        prompt_hash: '',
+        image: null,
+    });
+
     const restoreImage = () =>
         router.post(
             route('wallpapers.image.restore', { wallpaper: wallpaper.id }),
@@ -81,6 +105,52 @@ export default function ShowWallpaper({
             },
         );
 
+    const loadProposalPrompt = async () => {
+        setProposalPromptLoading(true);
+        setProposalPromptError(undefined);
+        try {
+            const prompt = await fetchManualPrompt(route('wallpapers.reproposal.manual-prompt', { wallpaper: wallpaper.id }));
+            setProposalPrompt(prompt);
+            proposalForm.setData('prompt_hash', prompt.prompt_hash);
+        } catch (error) {
+            setProposalPromptError(error instanceof Error ? error.message : 'プロンプトを取得できませんでした。');
+        } finally {
+            setProposalPromptLoading(false);
+        }
+    };
+
+    const saveProposal = (event: FormEvent) => {
+        event.preventDefault();
+        proposalForm.post(route('wallpapers.reproposal.manual-result', { wallpaper: wallpaper.id }), { preserveScroll: true });
+    };
+
+    const loadImagePrompt = async () => {
+        setImagePromptLoading(true);
+        setImagePromptError(undefined);
+        try {
+            const prompt = await fetchManualPrompt(
+                route('wallpapers.image.manual-prompt', {
+                    wallpaper: wallpaper.id,
+                    proposal_id: current?.id,
+                }),
+            );
+            setImagePrompt(prompt);
+            imageForm.setData('prompt_hash', prompt.prompt_hash);
+        } catch (error) {
+            setImagePromptError(error instanceof Error ? error.message : 'プロンプトを取得できませんでした。');
+        } finally {
+            setImagePromptLoading(false);
+        }
+    };
+
+    const saveImage = (event: FormEvent) => {
+        event.preventDefault();
+        imageForm.post(route('wallpapers.image.manual-result', { wallpaper: wallpaper.id }), {
+            preserveScroll: true,
+            forceFormData: true,
+        });
+    };
+
     return (
         <AppLayout
             breadcrumbs={[
@@ -89,7 +159,7 @@ export default function ShowWallpaper({
             ]}
         >
             <Head title={`${wallpaper.target_date} 壁紙`} />
-            <div className="space-y-6 p-4">
+            <div className="max-w-6xl space-y-6 p-4">
                 {flash.status && <Alert>{flash.status}</Alert>}
                 <div>
                     <h1 className="text-2xl font-bold">{wallpaper.target_date}</h1>
@@ -98,12 +168,12 @@ export default function ShowWallpaper({
                 {active && (
                     <div className="bg-muted flex items-center gap-2 rounded-lg p-4">
                         <LoaderCircle className="size-4 animate-spin" />
-                        AI処理中です。画面は3秒ごとに更新されます。
+                        API処理中です。画面は3秒ごとに更新されます。
                     </div>
                 )}
                 {operation?.status === 'failed' && (
                     <Alert variant="destructive">
-                        <AlertTitle>処理に失敗しました。</AlertTitle>
+                        <AlertTitle>API処理に失敗しました。</AlertTitle>
                         <AlertDescription>エラーコード: {operation.error_code}</AlertDescription>
                     </Alert>
                 )}
@@ -135,7 +205,7 @@ export default function ShowWallpaper({
                                                 className="size-full object-contain"
                                             />
                                         </div>
-                                        <figcaption className="text-muted-foreground mt-2 text-center text-sm">生成済み壁紙のプレビュー</figcaption>
+                                        <figcaption className="text-muted-foreground mt-2 text-center text-sm">保存済み壁紙のプレビュー</figcaption>
                                         <Button variant="outline" className="mt-3 w-full" asChild>
                                             <a href={route('wallpapers.download', { wallpaper: wallpaper.id })}>
                                                 <Download aria-hidden="true" />
@@ -156,13 +226,68 @@ export default function ShowWallpaper({
                                     {details.composition !== details.overview && <Section title="配置" body={details.composition} />}
                                     <Section title="色彩・五行" body={details.color_wu_xing} />
                                     <Section title="象徴意図" body={details.symbolism} />
+
+                                    {canCreateImage && (
+                                        <section className="space-y-4 border-t pt-4">
+                                            <div className="space-y-2">
+                                                <h3 className="font-semibold">画像作成</h3>
+                                                <ExecutionModeSelector value={imageMode} onChange={setImageMode} disabled={Boolean(active)} />
+                                            </div>
+                                            {imageMode === 'manual' ? (
+                                                <>
+                                                    <Button type="button" disabled={Boolean(active) || imagePromptLoading} onClick={loadImagePrompt}>
+                                                        {imagePromptLoading && <LoaderCircle className="animate-spin" aria-hidden="true" />}
+                                                        {imagePromptLoading ? '作成中' : '画像作成プロンプトを作成'}
+                                                    </Button>
+                                                    <InputError message={imagePromptError} />
+                                                    {imagePrompt && (
+                                                        <>
+                                                            <ManualPromptPanel prompt={imagePrompt} title="画像作成プロンプト" />
+                                                            <form onSubmit={saveImage} className="space-y-3 border-t pt-4">
+                                                                <div className="space-y-2">
+                                                                    <Label htmlFor="manual_image">ChatGPTで作成した画像</Label>
+                                                                    <Input
+                                                                        id="manual_image"
+                                                                        type="file"
+                                                                        accept="image/jpeg,image/png,image/webp"
+                                                                        onChange={(event) =>
+                                                                            imageForm.setData('image', event.target.files?.[0] ?? null)
+                                                                        }
+                                                                    />
+                                                                    <p className="text-muted-foreground text-sm">JPEG・PNG・WebP、最大20MB</p>
+                                                                    <InputError message={imageForm.errors.image} />
+                                                                </div>
+                                                                <Button
+                                                                    type="submit"
+                                                                    disabled={imageForm.processing || imageForm.data.image === null}
+                                                                >
+                                                                    {imageForm.processing && (
+                                                                        <LoaderCircle className="animate-spin" aria-hidden="true" />
+                                                                    )}
+                                                                    {imageForm.processing ? '保存中' : '画像を保存'}
+                                                                </Button>
+                                                            </form>
+                                                        </>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <ApiConfirmationButton
+                                                    label="APIで画像を作成"
+                                                    processingLabel="画像作成中"
+                                                    processing={Boolean(active)}
+                                                    onConfirm={() =>
+                                                        router.post(
+                                                            route('wallpapers.image', { wallpaper: wallpaper.id }),
+                                                            { proposal_id: current.id, api_confirmed: true },
+                                                            { preserveScroll: true },
+                                                        )
+                                                    }
+                                                />
+                                            )}
+                                        </section>
+                                    )}
+
                                     <div className="flex flex-wrap gap-3">
-                                        {canCreateImage && (
-                                            <Button disabled={Boolean(active)} onClick={generateImage}>
-                                                <ImagePlus aria-hidden="true" />
-                                                この構図で画像を作成
-                                            </Button>
-                                        )}
                                         {canRestoreImage && (
                                             <Button disabled={Boolean(active) || restoring} onClick={restoreImage}>
                                                 {restoring ? (
@@ -181,15 +306,6 @@ export default function ShowWallpaper({
                                                 </a>
                                             </Button>
                                         )}
-                                        {current?.status === 'proposed' && (
-                                            <Button
-                                                variant="outline"
-                                                disabled={Boolean(active)}
-                                                onClick={() => router.post(route('wallpapers.repropose', { wallpaper: wallpaper.id }))}
-                                            >
-                                                再提案
-                                            </Button>
-                                        )}
                                     </div>
                                     <InputError message={restoreError} />
                                     {downloadUnavailableReason && (
@@ -203,28 +319,60 @@ export default function ShowWallpaper({
                         </CardContent>
                     </Card>
                 )}
-                {!details && !active && (
-                    <div className="space-y-3">
-                        <div className="flex flex-wrap gap-3">
-                            <Button onClick={() => router.post(route('wallpapers.repropose', { wallpaper: wallpaper.id }))}>構図提案を再試行</Button>
-                            {canRestoreImage && (
-                                <Button disabled={restoring} onClick={restoreImage}>
-                                    {restoring ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <ArchiveRestore aria-hidden="true" />}
-                                    {restoring ? '復元中' : 'Notionから画像を復元'}
-                                </Button>
-                            )}
-                            {!localImageAvailable && downloadAvailable && (
-                                <Button variant="outline" asChild>
-                                    <a href={route('wallpapers.download', { wallpaper: wallpaper.id })}>
-                                        <Download aria-hidden="true" />
-                                        Notionバックアップからダウンロード
-                                    </a>
-                                </Button>
-                            )}
+
+                {!localImageAvailable && (
+                    <section className="space-y-4 border-t pt-6">
+                        <div className="space-y-2">
+                            <h2 className="text-lg font-semibold">{details ? '構図を再提案' : '構図提案を再試行'}</h2>
+                            <ExecutionModeSelector value={proposalMode} onChange={setProposalMode} disabled={Boolean(active)} />
                         </div>
-                        <InputError message={restoreError} />
-                    </div>
+                        {proposalMode === 'manual' ? (
+                            <>
+                                <Button type="button" disabled={Boolean(active) || proposalPromptLoading} onClick={loadProposalPrompt}>
+                                    {proposalPromptLoading && <LoaderCircle className="animate-spin" aria-hidden="true" />}
+                                    {proposalPromptLoading ? '作成中' : '構図提案プロンプトを作成'}
+                                </Button>
+                                <InputError message={proposalPromptError} />
+                                {proposalPrompt && (
+                                    <>
+                                        <ManualPromptPanel prompt={proposalPrompt} title="構図提案プロンプト" />
+                                        <form onSubmit={saveProposal} className="space-y-3 border-t pt-4">
+                                            <div className="space-y-2">
+                                                <Label htmlFor="proposal_json">ChatGPTの構図提案JSON</Label>
+                                                <Textarea
+                                                    id="proposal_json"
+                                                    rows={12}
+                                                    value={proposalForm.data.proposal_json}
+                                                    onChange={(event) => proposalForm.setData('proposal_json', event.target.value)}
+                                                    placeholder="ChatGPTから返されたJSONを貼り付けます"
+                                                />
+                                                <InputError message={proposalForm.errors.proposal_json} />
+                                            </div>
+                                            <Button type="submit" disabled={proposalForm.processing || proposalForm.data.proposal_json.trim() === ''}>
+                                                {proposalForm.processing && <LoaderCircle className="animate-spin" aria-hidden="true" />}
+                                                {proposalForm.processing ? '保存中' : '構図提案を保存'}
+                                            </Button>
+                                        </form>
+                                    </>
+                                )}
+                            </>
+                        ) : (
+                            <ApiConfirmationButton
+                                label={details ? 'APIで再提案' : 'APIで構図提案を再試行'}
+                                processingLabel="提案中"
+                                processing={Boolean(active)}
+                                onConfirm={() =>
+                                    router.post(
+                                        route('wallpapers.repropose', { wallpaper: wallpaper.id }),
+                                        { api_confirmed: true },
+                                        { preserveScroll: true },
+                                    )
+                                }
+                            />
+                        )}
+                    </section>
                 )}
+
                 {wallpaper.warnings && wallpaper.warnings.length > 0 && (
                     <Alert role="note" variant="warning">
                         <AlertTitle>注意事項</AlertTitle>
