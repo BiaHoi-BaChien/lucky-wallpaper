@@ -1,4 +1,5 @@
 import { Head, useForm } from '@inertiajs/react';
+import type { VerifyResponse } from '@laravel/passkeys';
 import { LoaderCircle } from 'lucide-react';
 import { FormEventHandler } from 'react';
 
@@ -20,15 +21,21 @@ export default function Login({ status }: LoginProps) {
         password: '',
         remember: false as boolean,
     });
-    const passkey = usePasskeyVerify({
+    const passkeyRoutes = {
+        options: route('passkey.login-options'),
+        submit: route('passkey.login'),
+    };
+    const handlePasskeySuccess = (response: VerifyResponse) => {
+        window.location.href = response.redirect || route('dashboard');
+    };
+    const passkeyAutofill = usePasskeyVerify({
         autofill: true,
-        routes: {
-            options: route('passkey.login-options'),
-            submit: route('passkey.login'),
-        },
-        onSuccess: (response) => {
-            window.location.href = response.redirect || route('dashboard');
-        },
+        routes: passkeyRoutes,
+        onSuccess: handlePasskeySuccess,
+    });
+    const passkey = usePasskeyVerify({
+        routes: passkeyRoutes,
+        onSuccess: handlePasskeySuccess,
     });
 
     const submit: FormEventHandler = (e) => {
@@ -101,7 +108,9 @@ export default function Login({ status }: LoginProps) {
                     >
                         {passkey.isLoading ? '確認中…' : 'パスキーでログイン'}
                     </Button>
-                    {passkey.error && <p className="text-sm text-red-600 dark:text-red-400">{passkey.error}</p>}
+                    {(passkey.error || passkeyAutofill.error) && (
+                        <p className="text-sm text-red-600 dark:text-red-400">{passkey.error || passkeyAutofill.error}</p>
+                    )}
                 </div>
             </form>
 
