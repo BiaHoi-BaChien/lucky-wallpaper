@@ -141,7 +141,7 @@ class ManualWallpaperController extends Controller
     ): RedirectResponse {
         $validated = $request->validate([
             'proposal_id' => ['nullable', 'integer'],
-            'prompt_hash' => ['required', 'string', 'size:64'],
+            'prompt_hash' => ['nullable', 'string', 'size:64'],
             'image' => ['required', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:20480'],
         ]);
         $this->rejectActiveRun('image_generation', $wallpaper);
@@ -155,8 +155,11 @@ class ManualWallpaperController extends Controller
                 'image' => '画像作成に必要な構図の詳細がありません。',
             ]);
         }
-        $prepared = $prompts->image($wallpaper, $proposal);
-        $this->assertPromptHash($prepared['prompt_hash'], $validated['prompt_hash'], 'image');
+        $promptHash = $validated['prompt_hash'] ?? null;
+        if ($promptHash !== null) {
+            $prepared = $prompts->image($wallpaper, $proposal);
+            $this->assertPromptHash($prepared['prompt_hash'], $promptHash, 'image');
+        }
 
         $bytes = $request->file('image')?->get();
         if (! is_string($bytes) || $bytes === '') {
@@ -174,14 +177,16 @@ class ManualWallpaperController extends Controller
         }
 
         try {
-            DB::transaction(function () use ($wallpaper, $prepared, $validated, $stored, $prompts): void {
+            DB::transaction(function () use ($wallpaper, $validated, $stored, $prompts, $promptHash): void {
                 $wallpaper = Wallpaper::query()->lockForUpdate()->findOrFail($wallpaper->id);
                 if ($this->hasLocalImage($wallpaper)) {
                     throw ValidationException::withMessages(['image' => '画像は既に保存されています。']);
                 }
                 $currentProposal = $this->proposal($wallpaper, $validated['proposal_id'] ?? null);
-                $currentPrompt = $prompts->image($wallpaper, $currentProposal);
-                $this->assertPromptHash($currentPrompt['prompt_hash'], $prepared['prompt_hash'], 'image');
+                if ($promptHash !== null) {
+                    $currentPrompt = $prompts->image($wallpaper, $currentProposal);
+                    $this->assertPromptHash($currentPrompt['prompt_hash'], $promptHash, 'image');
+                }
 
                 if ($currentProposal !== null) {
                     $wallpaper->proposals()
@@ -205,7 +210,7 @@ class ManualWallpaperController extends Controller
             throw $exception;
         }
 
-        return back()->with('status', 'ChatGPTで作成した画像を保存しました。');
+        return back()->with('status', '画像を保存しました。');
     }
 
     private function prepareComposition(
