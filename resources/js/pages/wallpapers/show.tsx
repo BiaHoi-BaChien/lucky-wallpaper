@@ -84,9 +84,9 @@ export default function ShowWallpaper({
     const [proposalPromptError, setProposalPromptError] = useState<string>();
     const [imagePromptError, setImagePromptError] = useState<string>();
     const proposalForm = useForm({ proposal_json: '', prompt_hash: '' });
-    const imageForm = useForm<{ proposal_id: number | null; prompt_hash: string; image: File | null }>({
+    const imageForm = useForm<{ proposal_id: number | null; prompt_hash: string | null; image: File | null }>({
         proposal_id: current?.id ?? null,
-        prompt_hash: '',
+        prompt_hash: null,
         image: null,
     });
 
@@ -242,35 +242,24 @@ export default function ShowWallpaper({
                                                         {imagePromptLoading ? '作成中' : '画像作成プロンプトを作成'}
                                                     </Button>
                                                     <InputError message={imagePromptError} />
-                                                    {imagePrompt && (
-                                                        <>
-                                                            <ManualPromptPanel prompt={imagePrompt} title="画像作成プロンプト" />
-                                                            <form onSubmit={saveImage} className="space-y-3 border-t pt-4">
-                                                                <div className="space-y-2">
-                                                                    <Label htmlFor="manual_image">ChatGPTで作成した画像</Label>
-                                                                    <Input
-                                                                        id="manual_image"
-                                                                        type="file"
-                                                                        accept="image/jpeg,image/png,image/webp"
-                                                                        onChange={(event) =>
-                                                                            imageForm.setData('image', event.target.files?.[0] ?? null)
-                                                                        }
-                                                                    />
-                                                                    <p className="text-muted-foreground text-sm">JPEG・PNG・WebP、最大20MB</p>
-                                                                    <InputError message={imageForm.errors.image} />
-                                                                </div>
-                                                                <Button
-                                                                    type="submit"
-                                                                    disabled={imageForm.processing || imageForm.data.image === null}
-                                                                >
-                                                                    {imageForm.processing && (
-                                                                        <LoaderCircle className="animate-spin" aria-hidden="true" />
-                                                                    )}
-                                                                    {imageForm.processing ? '保存中' : '画像を保存'}
-                                                                </Button>
-                                                            </form>
-                                                        </>
-                                                    )}
+                                                    {imagePrompt && <ManualPromptPanel prompt={imagePrompt} title="画像作成プロンプト" />}
+                                                    <form onSubmit={saveImage} className="space-y-3 border-t pt-4">
+                                                        <div className="space-y-2">
+                                                            <Label htmlFor="manual_image">登録する画像</Label>
+                                                            <Input
+                                                                id="manual_image"
+                                                                type="file"
+                                                                accept="image/jpeg,image/png,image/webp"
+                                                                onChange={(event) => imageForm.setData('image', event.target.files?.[0] ?? null)}
+                                                            />
+                                                            <p className="text-muted-foreground text-sm">JPEG・PNG・WebP、最大20MB</p>
+                                                            <InputError message={imageForm.errors.image} />
+                                                        </div>
+                                                        <Button type="submit" disabled={imageForm.processing || imageForm.data.image === null}>
+                                                            {imageForm.processing && <LoaderCircle className="animate-spin" aria-hidden="true" />}
+                                                            {imageForm.processing ? '登録中' : '画像を登録'}
+                                                        </Button>
+                                                    </form>
                                                 </>
                                             ) : (
                                                 <ApiConfirmationButton

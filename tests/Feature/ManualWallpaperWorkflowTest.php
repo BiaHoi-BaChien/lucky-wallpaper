@@ -205,7 +205,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         Queue::assertNothingPushed();
     }
 
-    public function test_manual_image_is_normalized_and_stored_without_api_usage(): void
+    public function test_manual_image_is_stored_without_loading_prompt_or_using_api(): void
     {
         Queue::fake();
         Http::preventStrayRequests();
@@ -223,15 +223,9 @@ class ManualWallpaperWorkflowTest extends TestCase
             'status' => 'proposed',
             'input_hash' => str_repeat('b', 64),
         ]);
-        $prompt = $this->actingAs($user)
-            ->getJson("/wallpapers/{$wallpaper->id}/image/manual-prompt?proposal_id={$proposal->id}")
-            ->assertOk()
-            ->json();
-
         $this->actingAs($user)
             ->post("/wallpapers/{$wallpaper->id}/image/manual-result", [
                 'proposal_id' => $proposal->id,
-                'prompt_hash' => $prompt['prompt_hash'],
                 'image' => UploadedFile::fake()->image('chatgpt.png', 900, 1600),
             ])
             ->assertRedirect()
@@ -245,6 +239,33 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertSame('approved', $proposal->refresh()->status);
         $this->assertDatabaseCount('api_runs', 0);
         Queue::assertNotPushed(GenerateWallpaperImage::class);
+    }
+
+    public function test_manual_image_rejects_an_invalid_optional_prompt_hash(): void
+    {
+        Storage::fake('local');
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'state' => 'proposed',
+            'image_disk' => null,
+            'image_path' => null,
+        ]);
+        $proposal = $wallpaper->proposals()->create([
+            ...$this->proposalPayload('画像用の案'),
+            'sequence' => 1,
+            'status' => 'proposed',
+            'input_hash' => str_repeat('b', 64),
+        ]);
+
+        $this->actingAs($user)
+            ->post("/wallpapers/{$wallpaper->id}/image/manual-result", [
+                'proposal_id' => $proposal->id,
+                'prompt_hash' => str_repeat('0', 64),
+                'image' => UploadedFile::fake()->image('chatgpt.png', 900, 1600),
+            ])
+            ->assertSessionHasErrors('image');
+
+        $this->assertNull($wallpaper->refresh()->image_path);
     }
 
     public function test_manual_image_rejects_proposal_from_another_wallpaper(): void
