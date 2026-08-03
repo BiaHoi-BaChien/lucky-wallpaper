@@ -113,8 +113,8 @@ class ProcessNotionSync implements ShouldQueue
             ->catch(static function (Batch $batch, Throwable $exception) use ($runId): void {
                 SyncRun::query()->whereKey($runId)->update([
                     'status' => 'failed',
-                    'retryable' => true,
-                    'error_code' => 'notion_import_batch_failed',
+                    'retryable' => $exception instanceof ExternalApiException ? $exception->retryable : true,
+                    'error_code' => $exception instanceof ExternalApiException ? $exception->errorCode : 'notion_import_batch_failed',
                     'finished_at' => now(),
                 ]);
             })

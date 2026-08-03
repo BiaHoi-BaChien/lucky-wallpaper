@@ -258,6 +258,33 @@ class WallpaperWorkflowTest extends TestCase
             ->assertStatus(502);
     }
 
+    public function test_notion_image_over_content_length_limit_is_rejected_before_display(): void
+    {
+        config([
+            'lucky.notion.token' => 'test',
+            'lucky.notion.max_download_bytes' => 100,
+        ]);
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'image_disk' => null,
+            'image_path' => null,
+            'notion_page_id' => 'notion-page-id',
+        ]);
+        $fileUrl = 'https://files.example.com/notion-wallpaper.png';
+        Http::fake([
+            'api.notion.com/v1/pages/notion-page-id' => Http::response($this->notionPage($fileUrl)),
+            $fileUrl => Http::response(
+                $this->pngBytes(),
+                200,
+                ['Content-Type' => 'image/png', 'Content-Length' => '101'],
+            ),
+        ]);
+
+        $this->actingAs($user)
+            ->get("/wallpapers/{$wallpaper->id}/preview")
+            ->assertStatus(502);
+    }
+
     public function test_missing_local_image_is_not_displayed_as_a_preview(): void
     {
         config(['lucky.notion.token' => 'test']);

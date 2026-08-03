@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\ExternalApiException;
 use App\Jobs\ImportNotionPages;
 use App\Jobs\ProcessNotionSync;
 use App\Models\AppSetting;
@@ -60,6 +61,116 @@ class NotionClientTest extends TestCase
         $this->assertSame('詳細本文', app(NotionClient::class)->getPageBody('page-text'));
     }
 
+    public function test_block_body_rejects_children_beyond_the_depth_limit(): void
+    {
+        config([
+            'lucky.notion.token' => 'test',
+            'lucky.notion.max_block_depth' => 0,
+        ]);
+        Http::fake([
+            'api.notion.com/v1/blocks/page/children*' => Http::response([
+                'results' => [[
+                    'id' => 'child',
+                    'type' => 'paragraph',
+                    'has_children' => true,
+                    'paragraph' => ['rich_text' => [['plain_text' => '親']]],
+                ]],
+                'has_more' => false,
+                'next_cursor' => null,
+            ]),
+            'api.notion.com/v1/blocks/child/children*' => Http::response([
+                'results' => [],
+                'has_more' => false,
+                'next_cursor' => null,
+            ]),
+        ]);
+
+        $this->expectException(ExternalApiException::class);
+
+        app(NotionClient::class)->getPageBody('page');
+    }
+
+    public function test_block_body_rejects_more_than_the_total_block_limit(): void
+    {
+        config([
+            'lucky.notion.token' => 'test',
+            'lucky.notion.max_blocks' => 1,
+        ]);
+        Http::fake([
+            'api.notion.com/v1/blocks/page/children*' => Http::response([
+                'results' => [
+                    [
+                        'id' => 'first',
+                        'type' => 'paragraph',
+                        'has_children' => false,
+                        'paragraph' => ['rich_text' => [['plain_text' => '一']]],
+                    ],
+                    [
+                        'id' => 'second',
+                        'type' => 'paragraph',
+                        'has_children' => false,
+                        'paragraph' => ['rich_text' => [['plain_text' => '二']]],
+                    ],
+                ],
+                'has_more' => false,
+                'next_cursor' => null,
+            ]),
+        ]);
+
+        $this->expectException(ExternalApiException::class);
+
+        app(NotionClient::class)->getPageBody('page');
+    }
+
+    public function test_block_body_rejects_more_than_the_api_page_limit(): void
+    {
+        config([
+            'lucky.notion.token' => 'test',
+            'lucky.notion.max_block_pages' => 1,
+        ]);
+        Http::fake([
+            'api.notion.com/v1/blocks/page/children*' => Http::sequence()
+                ->push([
+                    'results' => [],
+                    'has_more' => true,
+                    'next_cursor' => 'next',
+                ])
+                ->push([
+                    'results' => [],
+                    'has_more' => false,
+                    'next_cursor' => null,
+                ]),
+        ]);
+
+        $this->expectException(ExternalApiException::class);
+
+        app(NotionClient::class)->getPageBody('page');
+    }
+
+    public function test_block_body_rejects_text_over_the_byte_limit(): void
+    {
+        config([
+            'lucky.notion.token' => 'test',
+            'lucky.notion.max_page_body_bytes' => 3,
+        ]);
+        Http::fake([
+            'api.notion.com/v1/blocks/page/children*' => Http::response([
+                'results' => [[
+                    'id' => 'block',
+                    'type' => 'paragraph',
+                    'has_children' => false,
+                    'paragraph' => ['rich_text' => [['plain_text' => '1234']]],
+                ]],
+                'has_more' => false,
+                'next_cursor' => null,
+            ]),
+        ]);
+
+        $this->expectException(ExternalApiException::class);
+
+        app(NotionClient::class)->getPageBody('page');
+    }
+
     public function test_operation_table_accepts_retryable_failure_state(): void
     {
         $run = SyncRun::query()->create([
@@ -79,6 +190,38 @@ class NotionClientTest extends TestCase
         ]);
 
         $this->assertInstanceOf(PendingBatch::class, $batch);
+    }
+
+    public function test_import_job_fails_non_retryable_traversal_limit_without_releasing(): void
+    {
+        $run = SyncRun::query()->create(['type' => 'notion_import']);
+        $exception = new ExternalApiException('notion_block_traversal_limit', false);
+        $notion = \Mockery::mock(NotionClient::class);
+        $notion->shouldReceive('getPageBody')
+            ->once()
+            ->with('page-id')
+            ->andThrow($exception);
+        $job = (new ImportNotionPages($run->id, [[
+            'page_id' => 'page-id',
+            'target_date' => '2026-08-03',
+            'price_vnd' => 0,
+            'title' => '上限超過',
+        ]]))->withFakeQueueInteractions();
+
+        try {
+            $job->handle($notion);
+            $this->fail('Expected exception was not thrown.');
+        } catch (ExternalApiException $caught) {
+            $this->assertSame($exception, $caught);
+        }
+
+        $job->assertFailedWith($exception)->assertNotReleased();
+        $job->failed($exception);
+
+        $run->refresh();
+        $this->assertSame('failed', $run->status);
+        $this->assertFalse($run->retryable);
+        $this->assertSame('notion_block_traversal_limit', $run->error_code);
     }
 
     public function test_sync_uses_incremental_filter_and_keeps_latest_duplicate_without_fetching_body(): void

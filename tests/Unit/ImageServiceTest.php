@@ -2,12 +2,51 @@
 
 namespace Tests\Unit;
 
+use App\Exceptions\ExternalApiException;
 use App\Services\ImageService;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class ImageServiceTest extends TestCase
 {
+    public function test_external_image_over_source_pixel_limit_is_rejected(): void
+    {
+        config([
+            'lucky.image.max_source_width' => 100,
+            'lucky.image.max_source_height' => 100,
+            'lucky.image.max_source_pixels' => 99,
+        ]);
+
+        $source = imagecreatetruecolor(10, 10);
+        ob_start();
+        imagepng($source);
+        $bytes = ob_get_clean();
+        imagedestroy($source);
+
+        $this->expectException(ExternalApiException::class);
+
+        app(ImageService::class)->transcodeToJpeg($bytes);
+    }
+
+    public function test_generated_image_over_source_dimension_limit_is_rejected(): void
+    {
+        config([
+            'lucky.image.max_source_width' => 9,
+            'lucky.image.max_source_height' => 100,
+            'lucky.image.max_source_pixels' => 10_000,
+        ]);
+
+        $source = imagecreatetruecolor(10, 10);
+        ob_start();
+        imagepng($source);
+        $bytes = ob_get_clean();
+        imagedestroy($source);
+
+        $this->expectException(ExternalApiException::class);
+
+        app(ImageService::class)->normalizeAndStore($bytes);
+    }
+
     public function test_generated_image_is_stored_as_1440_by_2560_jpeg(): void
     {
         Storage::fake('local');
