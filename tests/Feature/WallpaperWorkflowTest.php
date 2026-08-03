@@ -16,6 +16,7 @@ use App\Services\OpenAiClient;
 use App\Services\WallpaperPromptService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia;
@@ -157,6 +158,104 @@ class WallpaperWorkflowTest extends TestCase
                 ->component('wallpapers/show', false)
                 ->where('localImageAvailable', true)
                 ->where('downloadAvailable', true));
+    }
+
+    public function test_notion_html_is_rejected_instead_of_being_displayed_inline(): void
+    {
+        config(['lucky.notion.token' => 'test']);
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'image_disk' => null,
+            'image_path' => null,
+            'notion_page_id' => 'notion-page-id',
+        ]);
+        $fileUrl = 'https://files.example.com/notion-wallpaper.html';
+        $script = '<script>window.location="/settings"</script>';
+        Http::fake([
+            'api.notion.com/v1/pages/notion-page-id' => Http::response($this->notionPage($fileUrl)),
+            $fileUrl => Http::response($script, 200, ['Content-Type' => 'text/html; charset=utf-8']),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->get("/wallpapers/{$wallpaper->id}/preview")
+            ->assertStatus(502);
+
+        $this->assertNotSame($script, $response->getContent());
+    }
+
+    public function test_notion_image_is_reencoded_as_a_fixed_inline_jpeg(): void
+    {
+        config(['lucky.notion.token' => 'test']);
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'image_disk' => null,
+            'image_path' => null,
+            'notion_page_id' => 'notion-page-id',
+        ]);
+        $fileUrl = 'https://files.example.com/notion-wallpaper.png';
+        Http::fake([
+            'api.notion.com/v1/pages/notion-page-id' => Http::response($this->notionPage($fileUrl)),
+            $fileUrl => Http::response($this->pngBytes(), 200, ['Content-Type' => 'text/html']),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->get("/wallpapers/{$wallpaper->id}/preview")
+            ->assertOk()
+            ->assertHeader('content-type', 'image/jpeg')
+            ->assertHeader('content-disposition', 'inline; filename="'.$wallpaper->target_date->format('Y-m-d').'-lucky-wallpaper.jpg"')
+            ->assertHeader('x-content-type-options', 'nosniff');
+
+        $size = getimagesizefromstring((string) $response->getContent());
+        $this->assertIsArray($size);
+        $this->assertSame('image/jpeg', $size['mime']);
+    }
+
+    public function test_notion_image_download_is_reencoded_as_a_fixed_attachment_jpeg(): void
+    {
+        config(['lucky.notion.token' => 'test']);
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'image_disk' => null,
+            'image_path' => null,
+            'notion_page_id' => 'notion-page-id',
+        ]);
+        $fileUrl = 'https://files.example.com/notion-wallpaper.png';
+        Http::fake([
+            'api.notion.com/v1/pages/notion-page-id' => Http::response($this->notionPage($fileUrl)),
+            $fileUrl => Http::response($this->pngBytes(), 200, ['Content-Type' => 'image/png']),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->get("/wallpapers/{$wallpaper->id}/download")
+            ->assertOk()
+            ->assertHeader('content-type', 'image/jpeg')
+            ->assertHeader('content-disposition', 'attachment; filename="'.$wallpaper->target_date->format('Y-m-d').'-lucky-wallpaper.jpg"')
+            ->assertHeader('x-content-type-options', 'nosniff');
+        $size = getimagesizefromstring((string) $response->getContent());
+        $this->assertIsArray($size);
+        $this->assertSame('image/jpeg', $size['mime']);
+    }
+
+    public function test_oversized_notion_image_is_rejected_before_display(): void
+    {
+        config(['lucky.notion.token' => 'test']);
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'image_disk' => null,
+            'image_path' => null,
+            'notion_page_id' => 'notion-page-id',
+        ]);
+        $fileUrl = 'https://files.example.com/notion-wallpaper.png';
+        $png = $this->pngBytes();
+        config(['lucky.notion.max_download_bytes' => strlen($png) - 1]);
+        Http::fake([
+            'api.notion.com/v1/pages/notion-page-id' => Http::response($this->notionPage($fileUrl)),
+            $fileUrl => Http::response($png, 200, ['Content-Type' => 'image/png']),
+        ]);
+
+        $this->actingAs($user)
+            ->get("/wallpapers/{$wallpaper->id}/preview")
+            ->assertStatus(502);
     }
 
     public function test_missing_local_image_is_not_displayed_as_a_preview(): void
@@ -321,5 +420,30 @@ class WallpaperWorkflowTest extends TestCase
             'summary' => "# 高額当選壁紙の傾向分析\n\nテスト分析",
             'status' => 'succeeded',
         ]);
+    }
+
+    private function notionPage(string $fileUrl): array
+    {
+        return [
+            'properties' => [
+                config('lucky.notion.property_wallpaper') => [
+                    'files' => [[
+                        'type' => 'file',
+                        'file' => ['url' => $fileUrl],
+                    ]],
+                ],
+            ],
+        ];
+    }
+
+    private function pngBytes(): string
+    {
+        $image = imagecreatetruecolor(2, 3);
+        ob_start();
+        imagepng($image);
+        $bytes = ob_get_clean();
+        imagedestroy($image);
+
+        return is_string($bytes) ? $bytes : '';
     }
 }

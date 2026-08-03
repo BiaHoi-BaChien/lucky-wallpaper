@@ -12,6 +12,7 @@ return [
         'property_title' => 'title',
         'property_wallpaper' => 'WallPaper',
         'max_upload_bytes' => 4_500_000,
+        'max_download_bytes' => 20_000_000,
     ],
     'openai' => [
         'api_key' => env('OPENAI_API_KEY'),
