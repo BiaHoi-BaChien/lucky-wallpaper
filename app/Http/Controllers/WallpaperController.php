@@ -2,16 +2,19 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\ExternalApiException;
 use App\Jobs\GenerateCompositionProposal;
 use App\Jobs\GenerateWallpaperImage;
 use App\Models\ApiRun;
 use App\Models\CompositionProposal;
 use App\Models\Wallpaper;
 use App\Services\HistoricalAnalysisService;
+use App\Services\ImageService;
 use App\Services\NotionClient;
 use App\Services\WallpaperDeletionService;
 use App\Services\WallpaperImageRestoreService;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\Client\Response as ClientResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -279,8 +282,11 @@ class WallpaperController extends Controller
         );
     }
 
-    public function download(Wallpaper $wallpaper, NotionClient $notion): StreamedResponse|HttpResponse
-    {
+    public function download(
+        Wallpaper $wallpaper,
+        NotionClient $notion,
+        ImageService $images,
+    ): StreamedResponse|HttpResponse {
         if ($this->hasLocalImage($wallpaper)) {
             return Storage::disk((string) $wallpaper->image_disk)->download(
                 (string) $wallpaper->image_path,
@@ -289,11 +295,14 @@ class WallpaperController extends Controller
             );
         }
 
-        return $this->notionImageResponse($wallpaper, $notion, true);
+        return $this->notionImageResponse($wallpaper, $notion, $images, true);
     }
 
-    public function preview(Wallpaper $wallpaper, NotionClient $notion): StreamedResponse|HttpResponse
-    {
+    public function preview(
+        Wallpaper $wallpaper,
+        NotionClient $notion,
+        ImageService $images,
+    ): StreamedResponse|HttpResponse {
         if ($this->hasLocalImage($wallpaper)) {
             return Storage::disk((string) $wallpaper->image_disk)->response(
                 (string) $wallpaper->image_path,
@@ -306,12 +315,13 @@ class WallpaperController extends Controller
             );
         }
 
-        return $this->notionImageResponse($wallpaper, $notion, false);
+        return $this->notionImageResponse($wallpaper, $notion, $images, false);
     }
 
     private function notionImageResponse(
         Wallpaper $wallpaper,
         NotionClient $notion,
+        ImageService $images,
         bool $download,
     ): HttpResponse {
         abort_if($wallpaper->notion_page_id === null, 404);
@@ -323,15 +333,43 @@ class WallpaperController extends Controller
         $page = $notion->getPage($wallpaper->notion_page_id);
         $url = $notion->wallpaperFileUrl($page);
         abort_if($url === null, 404);
-        $response = Http::timeout(60)->get($url);
+        $response = Http::timeout(60)->withOptions(['stream' => true])->get($url);
         abort_unless($response->successful(), 502);
 
-        return response($response->body(), 200, [
-            'Content-Type' => $response->header('Content-Type') ?: 'image/jpeg',
+        try {
+            $bytes = $images->transcodeToJpeg($this->readLimitedBody($response));
+        } catch (ExternalApiException) {
+            abort(502, 'Notionの画像ファイルを検証できませんでした。');
+        }
+
+        return response($bytes, 200, [
+            'Content-Type' => 'image/jpeg',
             'Content-Disposition' => ($download ? 'attachment' : 'inline')
                 .'; filename="'.$wallpaper->target_date->format('Y-m-d').'-lucky-wallpaper.jpg"',
             'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
         ]);
+    }
+
+    private function readLimitedBody(ClientResponse $response): string
+    {
+        $maxBytes = (int) config('lucky.notion.max_download_bytes');
+        $stream = $response->toPsrResponse()->getBody();
+        $bytes = '';
+
+        while (! $stream->eof()) {
+            $remaining = $maxBytes - strlen($bytes);
+            abort_if($remaining < 0, 502, 'Notionの画像ファイルが大きすぎます。');
+            $chunk = $stream->read(min(8192, $remaining + 1));
+            if ($chunk === '') {
+                break;
+            }
+            $bytes .= $chunk;
+        }
+
+        abort_if(strlen($bytes) > $maxBytes, 502, 'Notionの画像ファイルが大きすぎます。');
+
+        return $bytes;
     }
 
     private function hasLocalImage(Wallpaper $wallpaper): bool

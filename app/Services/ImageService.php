@@ -8,6 +8,25 @@ use Illuminate\Support\Str;
 
 class ImageService
 {
+    public function transcodeToJpeg(string $sourceBytes): string
+    {
+        $image = @imagecreatefromstring($sourceBytes);
+        if ($image === false) {
+            throw new ExternalApiException('invalid_external_image', false);
+        }
+
+        ob_start();
+        imagejpeg($image, null, (int) config('lucky.image.jpeg_quality'));
+        $bytes = ob_get_clean();
+        imagedestroy($image);
+
+        if (! is_string($bytes) || $bytes === '') {
+            throw new ExternalApiException('image_encoding_failed', false);
+        }
+
+        return $bytes;
+    }
+
     public function normalizeAndStore(string $sourceBytes): array
     {
         $image = @imagecreatefromstring($sourceBytes);
