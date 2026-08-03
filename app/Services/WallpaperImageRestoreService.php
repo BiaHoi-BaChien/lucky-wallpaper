@@ -42,7 +42,7 @@ class WallpaperImageRestoreService
             $this->throwImageMissing();
         }
 
-        $response = Http::timeout(60)->get($url);
+        $response = Http::timeout(60)->withOptions(['stream' => true])->get($url);
         if ($response->status() === 404) {
             $this->throwImageMissing();
         }
@@ -53,7 +53,9 @@ class WallpaperImageRestoreService
             );
         }
 
-        $stored = $this->images->normalizeAndStore($response->body());
+        $stored = $this->images->normalizeAndStore(
+            $this->images->readLimitedResponse($response),
+        );
 
         try {
             $wallpaper->update([

@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Exceptions\ExternalApiException;
 use App\Models\AnalysisSnapshot;
 use App\Models\SyncRun;
 use App\Models\Wallpaper;
@@ -10,6 +11,7 @@ use Illuminate\Bus\Batchable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Queue\Queueable;
+use Throwable;
 
 class ImportNotionPages implements ShouldQueue
 {
@@ -34,7 +36,15 @@ class ImportNotionPages implements ShouldQueue
                 continue;
             }
 
-            $body = $notion->getPageBody($candidate['page_id']);
+            try {
+                $body = $notion->getPageBody($candidate['page_id']);
+            } catch (ExternalApiException $exception) {
+                if (! $exception->retryable) {
+                    $this->fail($exception);
+                }
+
+                throw $exception;
+            }
             if ($body === '') {
                 SyncRun::query()->whereKey($this->runId)->increment('skipped_empty_body');
                 SyncRun::query()->whereKey($this->runId)->increment('processed');
@@ -61,5 +71,15 @@ class ImportNotionPages implements ShouldQueue
             }
             SyncRun::query()->whereKey($this->runId)->increment('processed');
         }
+    }
+
+    public function failed(?Throwable $exception): void
+    {
+        SyncRun::query()->whereKey($this->runId)->update([
+            'status' => 'failed',
+            'retryable' => $exception instanceof ExternalApiException ? $exception->retryable : true,
+            'error_code' => $exception instanceof ExternalApiException ? $exception->errorCode : 'notion_import_batch_failed',
+            'finished_at' => now(),
+        ]);
     }
 }

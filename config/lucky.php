@@ -13,6 +13,10 @@ return [
         'property_wallpaper' => 'WallPaper',
         'max_upload_bytes' => 4_500_000,
         'max_download_bytes' => 20_000_000,
+        'max_block_depth' => 20,
+        'max_blocks' => 10_000,
+        'max_block_pages' => 300,
+        'max_page_body_bytes' => 1_000_000,
     ],
     'openai' => [
         'api_key' => env('OPENAI_API_KEY'),
@@ -29,6 +33,9 @@ return [
     'image' => [
         'width' => 1440,
         'height' => 2560,
+        'max_source_width' => 8192,
+        'max_source_height' => 8192,
+        'max_source_pixels' => 16_000_000,
         'quality' => 'high',
         'jpeg_quality' => 85,
         'disk' => env('WALLPAPER_DISK', 'local'),

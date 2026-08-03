@@ -85,7 +85,14 @@ class NotionClient
 
     public function getPageBody(string $pageId): string
     {
-        return trim($this->getBlockText($pageId));
+        $budget = [
+            'blocks' => 0,
+            'pages' => 0,
+            'bytes' => 0,
+            'visited' => [],
+        ];
+
+        return trim($this->getBlockText($pageId, 0, $budget));
     }
 
     public function parseCandidate(array $page): array
@@ -197,12 +204,26 @@ class NotionClient
         return ($file['type'] ?? null) === 'file' ? data_get($file, 'file.url') : null;
     }
 
-    private function getBlockText(string $blockId): string
+    /**
+     * @param  array{blocks: int, pages: int, bytes: int, visited: array<string, true>}  $budget
+     */
+    private function getBlockText(string $blockId, int $depth, array &$budget): string
     {
+        $maxDepth = max(0, (int) config('lucky.notion.max_block_depth'));
+        if ($depth > $maxDepth || isset($budget['visited'][$blockId])) {
+            throw new ExternalApiException('notion_block_traversal_limit', false);
+        }
+        $budget['visited'][$blockId] = true;
+
         $cursor = null;
         $lines = [];
 
         do {
+            $budget['pages']++;
+            if ($budget['pages'] > max(1, (int) config('lucky.notion.max_block_pages'))) {
+                throw new ExternalApiException('notion_block_traversal_limit', false);
+            }
+
             $query = ['page_size' => 100];
             if ($cursor !== null) {
                 $query['start_cursor'] = $cursor;
@@ -210,15 +231,24 @@ class NotionClient
 
             $response = $this->request('get', '/blocks/'.$blockId.'/children', $query);
             foreach ($response->json('results', []) as $block) {
+                $budget['blocks']++;
+                if ($budget['blocks'] > max(1, (int) config('lucky.notion.max_blocks'))) {
+                    throw new ExternalApiException('notion_block_traversal_limit', false);
+                }
+
                 $type = $block['type'] ?? null;
                 if (is_string($type)) {
                     $text = $this->plainText(data_get($block, $type.'.rich_text', []));
                     if ($text !== '') {
+                        $budget['bytes'] += strlen($text) + ($budget['bytes'] === 0 ? 0 : 1);
+                        if ($budget['bytes'] > max(1, (int) config('lucky.notion.max_page_body_bytes'))) {
+                            throw new ExternalApiException('notion_block_traversal_limit', false);
+                        }
                         $lines[] = $text;
                     }
                 }
                 if (($block['has_children'] ?? false) === true && isset($block['id'])) {
-                    $childText = $this->getBlockText((string) $block['id']);
+                    $childText = $this->getBlockText((string) $block['id'], $depth + 1, $budget);
                     if ($childText !== '') {
                         $lines[] = $childText;
                     }

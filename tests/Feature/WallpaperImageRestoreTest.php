@@ -108,6 +108,39 @@ class WallpaperImageRestoreTest extends TestCase
         Http::assertSentCount(2);
     }
 
+    public function test_oversized_notion_image_is_rejected_before_restore(): void
+    {
+        config([
+            'lucky.notion.token' => 'test',
+            'lucky.image.disk' => 'local',
+        ]);
+        Storage::fake('local');
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'notion_page_id' => 'notion-page-id',
+            'image_disk' => null,
+            'image_path' => null,
+        ]);
+        $fileUrl = 'https://files.example.com/oversized-wallpaper.png';
+        $png = $this->pngBytes();
+        config(['lucky.notion.max_download_bytes' => strlen($png) - 1]);
+        Http::fake([
+            'api.notion.com/v1/pages/notion-page-id' => Http::response($this->notionPage($fileUrl)),
+            $fileUrl => Http::response($png, 200, ['Content-Type' => 'image/png']),
+        ]);
+
+        $this->actingAs($user)
+            ->from("/wallpapers/{$wallpaper->id}")
+            ->post("/wallpapers/{$wallpaper->id}/restore-image")
+            ->assertRedirect("/wallpapers/{$wallpaper->id}")
+            ->assertSessionHasErrors([
+                'restoreImage' => 'Notionから画像ファイルを復元できませんでした。Notionバックアップと接続設定を確認して再試行してください。',
+            ]);
+
+        $this->assertNull($wallpaper->refresh()->image_path);
+        Storage::disk('local')->assertDirectoryEmpty('wallpapers');
+    }
+
     public function test_restore_returns_error_when_notion_backup_is_not_linked(): void
     {
         config(['lucky.notion.token' => 'test']);

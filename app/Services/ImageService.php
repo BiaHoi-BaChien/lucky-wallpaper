@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\ExternalApiException;
+use Illuminate\Http\Client\Response as ClientResponse;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -10,10 +11,7 @@ class ImageService
 {
     public function transcodeToJpeg(string $sourceBytes): string
     {
-        $image = @imagecreatefromstring($sourceBytes);
-        if ($image === false) {
-            throw new ExternalApiException('invalid_external_image', false);
-        }
+        $image = $this->decodeSourceImage($sourceBytes, 'invalid_external_image');
 
         ob_start();
         imagejpeg($image, null, (int) config('lucky.image.jpeg_quality'));
@@ -29,10 +27,7 @@ class ImageService
 
     public function normalizeAndStore(string $sourceBytes): array
     {
-        $image = @imagecreatefromstring($sourceBytes);
-        if ($image === false) {
-            throw new ExternalApiException('invalid_generated_image', false);
-        }
+        $image = $this->decodeSourceImage($sourceBytes, 'invalid_generated_image');
 
         $width = (int) config('lucky.image.width');
         $height = (int) config('lucky.image.height');
@@ -73,6 +68,36 @@ class ImageService
         ];
     }
 
+    public function readLimitedResponse(ClientResponse $response): string
+    {
+        $maxBytes = max(1, (int) config('lucky.notion.max_download_bytes'));
+        $contentLength = trim((string) $response->header('Content-Length'));
+        if ($contentLength !== '' && ctype_digit($contentLength) && (int) $contentLength > $maxBytes) {
+            throw new ExternalApiException('notion_image_too_large', false);
+        }
+
+        $stream = $response->toPsrResponse()->getBody();
+        $bytes = '';
+
+        while (! $stream->eof()) {
+            $remaining = $maxBytes - strlen($bytes);
+            if ($remaining < 0) {
+                throw new ExternalApiException('notion_image_too_large', false);
+            }
+            $chunk = $stream->read(min(8192, $remaining + 1));
+            if ($chunk === '') {
+                break;
+            }
+            $bytes .= $chunk;
+        }
+
+        if (strlen($bytes) > $maxBytes) {
+            throw new ExternalApiException('notion_image_too_large', false);
+        }
+
+        return $bytes;
+    }
+
     public function fitForNotion(string $bytes): string
     {
         $maxBytes = (int) config('lucky.notion.max_upload_bytes');
@@ -98,5 +123,35 @@ class ImageService
         imagedestroy($image);
 
         throw new ExternalApiException('notion_file_too_large', false);
+    }
+
+    private function decodeSourceImage(string $sourceBytes, string $errorCode): \GdImage
+    {
+        $size = @getimagesizefromstring($sourceBytes);
+        if (! is_array($size)) {
+            throw new ExternalApiException($errorCode, false);
+        }
+
+        $sourceWidth = $size[0];
+        $sourceHeight = $size[1];
+        $maxWidth = max(1, (int) config('lucky.image.max_source_width'));
+        $maxHeight = max(1, (int) config('lucky.image.max_source_height'));
+        $maxPixels = max(1, (int) config('lucky.image.max_source_pixels'));
+        if (
+            $sourceWidth < 1
+            || $sourceHeight < 1
+            || $sourceWidth > $maxWidth
+            || $sourceHeight > $maxHeight
+            || $sourceWidth > intdiv($maxPixels, $sourceHeight)
+        ) {
+            throw new ExternalApiException($errorCode, false);
+        }
+
+        $image = @imagecreatefromstring($sourceBytes);
+        if ($image === false) {
+            throw new ExternalApiException($errorCode, false);
+        }
+
+        return $image;
     }
 }

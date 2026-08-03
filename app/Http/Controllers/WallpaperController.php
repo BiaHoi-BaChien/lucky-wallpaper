@@ -14,7 +14,6 @@ use App\Services\NotionClient;
 use App\Services\WallpaperDeletionService;
 use App\Services\WallpaperImageRestoreService;
 use Carbon\CarbonImmutable;
-use Illuminate\Http\Client\Response as ClientResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -337,7 +336,7 @@ class WallpaperController extends Controller
         abort_unless($response->successful(), 502);
 
         try {
-            $bytes = $images->transcodeToJpeg($this->readLimitedBody($response));
+            $bytes = $images->transcodeToJpeg($images->readLimitedResponse($response));
         } catch (ExternalApiException) {
             abort(502, 'Notionの画像ファイルを検証できませんでした。');
         }
@@ -349,27 +348,6 @@ class WallpaperController extends Controller
             'Cache-Control' => 'private, no-store',
             'X-Content-Type-Options' => 'nosniff',
         ]);
-    }
-
-    private function readLimitedBody(ClientResponse $response): string
-    {
-        $maxBytes = (int) config('lucky.notion.max_download_bytes');
-        $stream = $response->toPsrResponse()->getBody();
-        $bytes = '';
-
-        while (! $stream->eof()) {
-            $remaining = $maxBytes - strlen($bytes);
-            abort_if($remaining < 0, 502, 'Notionの画像ファイルが大きすぎます。');
-            $chunk = $stream->read(min(8192, $remaining + 1));
-            if ($chunk === '') {
-                break;
-            }
-            $bytes .= $chunk;
-        }
-
-        abort_if(strlen($bytes) > $maxBytes, 502, 'Notionの画像ファイルが大きすぎます。');
-
-        return $bytes;
     }
 
     private function hasLocalImage(Wallpaper $wallpaper): bool
