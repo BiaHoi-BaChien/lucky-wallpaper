@@ -1,4 +1,5 @@
 import { ClipboardCopyButton } from '@/components/clipboard-copy-button';
+import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -10,9 +11,11 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Download, LoaderCircle } from 'lucide-react';
-import { useState } from 'react';
+import { ChangeEvent, useState } from 'react';
 
 export type ExecutionMode = 'manual' | 'api';
 
@@ -85,6 +88,87 @@ export function ManualPromptPanel({ prompt, title }: { prompt: ManualPrompt; tit
             </div>
             <Textarea readOnly value={prompt.prompt} rows={12} className="font-mono text-xs leading-5" aria-label={title} />
         </section>
+    );
+}
+
+export function ManualResultField({
+    id,
+    label,
+    value,
+    onChange,
+    placeholder,
+    fileAccept,
+    fileDescription,
+    maxLength,
+    error,
+}: {
+    id: string;
+    label: string;
+    value: string;
+    onChange: (value: string) => void;
+    placeholder: string;
+    fileAccept: string;
+    fileDescription: string;
+    maxLength: number;
+    error?: string;
+}) {
+    const [fileError, setFileError] = useState<string>();
+    const fileInputId = `${id}_file`;
+
+    const loadFile = async (event: ChangeEvent<HTMLInputElement>) => {
+        const input = event.currentTarget;
+        const file = input.files?.[0];
+        if (!file) {
+            return;
+        }
+
+        setFileError(undefined);
+        try {
+            if (file.size > maxLength * 4) {
+                throw new Error(`ファイルが大きすぎます。${maxLength.toLocaleString('ja-JP')}文字以内のファイルを選択してください。`);
+            }
+
+            const bytes = await file.arrayBuffer();
+            let text: string;
+            try {
+                text = new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/^\uFEFF/, '');
+            } catch {
+                throw new Error('ファイルをUTF-8として読み取れませんでした。');
+            }
+
+            if (text.length > maxLength) {
+                throw new Error(`ファイルが大きすぎます。${maxLength.toLocaleString('ja-JP')}文字以内のファイルを選択してください。`);
+            }
+
+            onChange(text);
+        } catch (loadError) {
+            setFileError(loadError instanceof Error ? loadError.message : 'ファイルを読み取れませんでした。');
+        } finally {
+            input.value = '';
+        }
+    };
+
+    return (
+        <div className="space-y-2">
+            <Label htmlFor={id}>{label}</Label>
+            <Textarea
+                id={id}
+                rows={12}
+                maxLength={maxLength}
+                value={value}
+                onChange={(event) => {
+                    setFileError(undefined);
+                    onChange(event.target.value);
+                }}
+                placeholder={placeholder}
+            />
+            <div className="space-y-2 pt-1">
+                <Label htmlFor={fileInputId}>ファイルから入力</Label>
+                <Input id={fileInputId} type="file" accept={fileAccept} onChange={loadFile} />
+                <p className="text-muted-foreground text-sm">{fileDescription}</p>
+            </div>
+            <InputError message={fileError ?? error} />
+        </div>
     );
 }
 

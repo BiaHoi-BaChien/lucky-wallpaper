@@ -5,6 +5,7 @@ import {
     fetchManualPrompt,
     ManualPrompt,
     ManualPromptPanel,
+    ManualResultField,
 } from '@/components/ai-workflow-controls';
 import { ClipboardCopyButton } from '@/components/clipboard-copy-button';
 import InputError from '@/components/input-error';
@@ -13,7 +14,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { DeleteWallpaperDialog, DeleteWallpaperImageDialog } from '@/components/wallpaper-delete-dialogs';
 import { Operation, useOperation } from '@/hooks/use-operation';
 import AppLayout from '@/layouts/app-layout';
@@ -328,17 +328,17 @@ export default function ShowWallpaper({
                                     <>
                                         <ManualPromptPanel prompt={proposalPrompt} title="構図提案プロンプト" />
                                         <form onSubmit={saveProposal} className="space-y-3 border-t pt-4">
-                                            <div className="space-y-2">
-                                                <Label htmlFor="proposal_json">ChatGPTの構図提案JSON</Label>
-                                                <Textarea
-                                                    id="proposal_json"
-                                                    rows={12}
-                                                    value={proposalForm.data.proposal_json}
-                                                    onChange={(event) => proposalForm.setData('proposal_json', event.target.value)}
-                                                    placeholder="ChatGPTから返されたJSONを貼り付けます"
-                                                />
-                                                <InputError message={proposalForm.errors.proposal_json} />
-                                            </div>
+                                            <ManualResultField
+                                                id="proposal_json"
+                                                label="ChatGPTの構図提案JSON"
+                                                value={proposalForm.data.proposal_json}
+                                                onChange={(value) => proposalForm.setData('proposal_json', value)}
+                                                placeholder="ChatGPTから返されたJSONを貼り付けます"
+                                                fileAccept=".json,.txt,application/json,text/plain"
+                                                fileDescription="JSON・テキスト（UTF-8）、最大2,000,000文字"
+                                                maxLength={2_000_000}
+                                                error={proposalForm.errors.proposal_json}
+                                            />
                                             <Button type="submit" disabled={proposalForm.processing || proposalForm.data.proposal_json.trim() === ''}>
                                                 {proposalForm.processing && <LoaderCircle className="animate-spin" aria-hidden="true" />}
                                                 {proposalForm.processing ? '保存中' : '構図提案を保存'}
