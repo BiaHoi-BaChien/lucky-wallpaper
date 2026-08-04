@@ -33,6 +33,8 @@ class ManualWallpaperWorkflowTest extends TestCase
             ->assertOk()
             ->assertJsonStructure(['prompt', 'prompt_hash', 'context_hash', 'filename'])
             ->json();
+        $this->assertStringContainsString('画面に表示するとともに', $prompt['prompt']);
+        $this->assertStringContainsString('wallpaper-analysis.md', $prompt['prompt']);
 
         $this->actingAs($user)
             ->post('/wallpaper-analyses/manual-result', [
@@ -117,6 +119,8 @@ class ManualWallpaperWorkflowTest extends TestCase
             ->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-08-10')
             ->assertOk()
             ->json();
+        $this->assertStringContainsString('画面に表示するとともに', $prompt['prompt']);
+        $this->assertStringContainsString('wallpaper-composition-2026-08-10.json', $prompt['prompt']);
         $json = "```json\n".json_encode($this->proposalPayload('手動の黄金庭園'), JSON_UNESCAPED_UNICODE)."\n```";
 
         $this->actingAs($user)
