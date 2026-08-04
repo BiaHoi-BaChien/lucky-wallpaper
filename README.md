@@ -39,7 +39,7 @@ WALLPAPER_DELETE_AFTER_NOTION_BACKUP=true
 
 `NOTION_TOKEN`は任意です。未設定でも実績登録、壁紙作成、履歴管理などのサーバー機能は利用できますが、Notionへのバックアップとバックアップからの復元は利用できません。`WALLPAPER_DELETE_AFTER_NOTION_BACKUP=true`の場合は、バックアップ成功後にサーバー上の画像を削除するため、バックアップ済み画像のダウンロードにはNotion接続が必要です。`false`にすると、バックアップ後もサーバー上の画像を保持します。
 
-`OPENAI_API_KEY`も任意です。壁紙作成画面では各工程の初期値が「手動（ChatGPT）」になり、プロンプトをコピーまたはテキストファイルでダウンロードできます。ChatGPTの分析結果はMarkdown、構図提案はJSONとして貼り付けます。作成画像は画像作成プロンプトを表示しなくても、JPEG・PNG・WebP形式（最大20MB）でアップロードできます。APIを選択した場合だけ確認画面を経てOpenAI APIへ送信します。
+`OPENAI_API_KEY`も任意です。壁紙作成画面では各工程の初期値が「手動（ChatGPT）」になり、プロンプトをコピーまたはテキストファイルでダウンロードできます。ChatGPTの分析結果はMarkdown、構図提案はJSONとして貼り付けるか、UTF-8のファイルから入力します。作成画像は画像作成プロンプトを表示しなくても、JPEG・PNG・WebP形式（最大20MB）でアップロードできます。APIを選択した場合だけ確認画面を経てOpenAI APIへ送信します。
 
 手動画像アップロードを利用する環境では、PHPの`upload_max_filesize`と`post_max_size`を20MBより大きい値に設定してください。
 

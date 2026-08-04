@@ -5,6 +5,7 @@ import {
     fetchManualPrompt,
     ManualPrompt,
     ManualPromptPanel,
+    ManualResultField,
 } from '@/components/ai-workflow-controls';
 import InputError from '@/components/input-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -12,7 +13,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Operation, useOperation } from '@/hooks/use-operation';
 import AppLayout from '@/layouts/app-layout';
@@ -192,17 +192,17 @@ export default function CreateWallpaper({
                                 <>
                                     <ManualPromptPanel prompt={analysisPrompt} title="傾向分析プロンプト" />
                                     <form onSubmit={saveAnalysis} className="space-y-3 border-t pt-4">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="analysis_markdown">ChatGPTの分析結果</Label>
-                                            <Textarea
-                                                id="analysis_markdown"
-                                                rows={12}
-                                                value={manualAnalysisForm.data.analysis_markdown}
-                                                onChange={(event) => manualAnalysisForm.setData('analysis_markdown', event.target.value)}
-                                                placeholder="ChatGPTから返されたMarkdownを貼り付けます"
-                                            />
-                                            <InputError message={manualAnalysisForm.errors.analysis_markdown} />
-                                        </div>
+                                        <ManualResultField
+                                            id="analysis_markdown"
+                                            label="ChatGPTの分析結果"
+                                            value={manualAnalysisForm.data.analysis_markdown}
+                                            onChange={(value) => manualAnalysisForm.setData('analysis_markdown', value)}
+                                            placeholder="ChatGPTから返されたMarkdownを貼り付けます"
+                                            fileAccept=".md,.txt,text/markdown,text/plain"
+                                            fileDescription="Markdown・テキスト（UTF-8）、最大1,000,000文字"
+                                            maxLength={1_000_000}
+                                            error={manualAnalysisForm.errors.analysis_markdown}
+                                        />
                                         <Button
                                             type="submit"
                                             disabled={
@@ -286,17 +286,17 @@ export default function CreateWallpaper({
                                             <>
                                                 <ManualPromptPanel prompt={proposalPrompt} title="構図提案プロンプト" />
                                                 <form onSubmit={saveProposal} className="space-y-3 border-t pt-4">
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="proposal_json">ChatGPTの構図提案JSON</Label>
-                                                        <Textarea
-                                                            id="proposal_json"
-                                                            rows={12}
-                                                            value={manualProposalForm.data.proposal_json}
-                                                            onChange={(event) => manualProposalForm.setData('proposal_json', event.target.value)}
-                                                            placeholder="ChatGPTから返されたJSONを貼り付けます"
-                                                        />
-                                                        <InputError message={manualProposalForm.errors.proposal_json} />
-                                                    </div>
+                                                    <ManualResultField
+                                                        id="proposal_json"
+                                                        label="ChatGPTの構図提案JSON"
+                                                        value={manualProposalForm.data.proposal_json}
+                                                        onChange={(value) => manualProposalForm.setData('proposal_json', value)}
+                                                        placeholder="ChatGPTから返されたJSONを貼り付けます"
+                                                        fileAccept=".json,.txt,application/json,text/plain"
+                                                        fileDescription="JSON・テキスト（UTF-8）、最大2,000,000文字"
+                                                        maxLength={2_000_000}
+                                                        error={manualProposalForm.errors.proposal_json}
+                                                    />
                                                     <Button
                                                         type="submit"
                                                         disabled={
