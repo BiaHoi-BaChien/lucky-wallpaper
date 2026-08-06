@@ -14,7 +14,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Download, LoaderCircle } from 'lucide-react';
+import { Download, FileJson, LoaderCircle } from 'lucide-react';
 import { ChangeEvent, useState } from 'react';
 
 export type ExecutionMode = 'manual' | 'api';
@@ -24,6 +24,7 @@ export interface ManualPrompt {
     prompt_hash: string;
     context_hash: string;
     filename: string;
+    data_filename?: string;
     default_result?: string | null;
 }
 
@@ -64,7 +65,7 @@ export function ExecutionModeSelector({
     );
 }
 
-export function ManualPromptPanel({ prompt, title }: { prompt: ManualPrompt; title: string }) {
+export function ManualPromptPanel({ prompt, title, dataDownloadUrl }: { prompt: ManualPrompt; title: string; dataDownloadUrl?: string }) {
     const download = () => {
         const url = URL.createObjectURL(new Blob([prompt.prompt], { type: 'text/plain;charset=utf-8' }));
         const link = document.createElement('a');
@@ -78,11 +79,19 @@ export function ManualPromptPanel({ prompt, title }: { prompt: ManualPrompt; tit
         <section className="space-y-3 border-t pt-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-medium">{title}</h3>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap justify-end gap-2">
                     <ClipboardCopyButton value={prompt.prompt} label={title} variant="outline" className="size-9" />
+                    {dataDownloadUrl && prompt.data_filename && (
+                        <Button asChild size="sm" variant="outline">
+                            <a href={dataDownloadUrl} download={prompt.data_filename}>
+                                <FileJson aria-hidden="true" />
+                                データJSON
+                            </a>
+                        </Button>
+                    )}
                     <Button type="button" size="sm" variant="outline" onClick={download}>
                         <Download aria-hidden="true" />
-                        ダウンロード
+                        {dataDownloadUrl ? 'プロンプト' : 'ダウンロード'}
                     </Button>
                 </div>
             </div>

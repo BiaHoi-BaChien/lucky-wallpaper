@@ -10,6 +10,8 @@ use Illuminate\Support\Collection;
 
 class HistoricalAnalysisService
 {
+    private const MANUAL_DATA_FILENAME = 'wallpaper-analysis-data.json';
+
     private const EMPTY_SUMMARY = <<<'MARKDOWN'
 # 高額当選壁紙の傾向分析
 
@@ -182,6 +184,7 @@ MARKDOWN;
      *     prompt_hash: string,
      *     context_hash: string,
      *     filename: string,
+     *     data_filename: string,
      *     default_result: string|null
      * }
      */
@@ -189,17 +192,21 @@ MARKDOWN;
     {
         $records = $this->records();
         $dataHash = $this->dataHash($records);
-        $rows = collect($this->chunks($records))->flatten(1)->values()->all();
-        $input = json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
+        $dataFilename = self::MANUAL_DATA_FILENAME;
+        $recordCount = $records->count();
         $prompt = $this->chunkInstructions().<<<PROMPT
 
 
-以下は分析対象の全データです。チャンク分割や追加質問は行わず、全体を一括して分析してください。
+ChatGPTプロジェクトの「利用可能なソース」に、次の分析データJSONを登録してから分析してください。
+ファイル名: {$dataFilename}
+データハッシュ: {$dataHash}
+対象件数: {$recordCount}件
+
+PythonでJSONファイル全体を読み込み、data_hash、record_count、recordsの実件数、is_high_prize=true/falseの件数を最初に検証してください。
+JSON内のdata_hashが上記データハッシュと一致しない場合は分析を中止し、正しいファイルの登録を依頼してください。
+一部レコードの検索結果だけで判断せず、recordsの全件を一括して分析してください。追加質問は行わないでください。
 回答は「# 高額当選壁紙の傾向分析」から始まる日本語Markdown本文だけにしてください。JSONやコードフェンスは使用しないでください。
 分析結果は画面に表示するとともに、同じ内容をUTF-8のMarkdownファイル（wallpaper-analysis.md）としてダウンロードできるようにしてください。
-
-分析対象データ（JSON）:
-{$input}
 PROMPT;
 
         return [
@@ -207,7 +214,39 @@ PROMPT;
             'prompt_hash' => hash('sha256', config('lucky.openai.prompt_version').'|'.$prompt),
             'context_hash' => $dataHash,
             'filename' => 'wallpaper-analysis-'.substr($dataHash, 0, 12).'.txt',
+            'data_filename' => self::MANUAL_DATA_FILENAME,
             'default_result' => $records->isEmpty() ? self::EMPTY_SUMMARY : null,
+        ];
+    }
+
+    /**
+     * @return array{content: string, filename: string}
+     */
+    public function manualData(string $expectedDataHash): array
+    {
+        $records = $this->records();
+        $dataHash = $this->dataHash($records);
+        if (! hash_equals($dataHash, $expectedDataHash)) {
+            throw new ExternalApiException('historical_analysis_stale_input', false);
+        }
+
+        $rows = collect($this->chunks($records))->flatten(1)->values()->all();
+        $payload = [
+            'schema_version' => '1',
+            'generated_at' => now()->timezone((string) config('lucky.timezone'))->toIso8601String(),
+            'timezone' => (string) config('lucky.timezone'),
+            'data_hash' => $dataHash,
+            'record_count' => $records->count(),
+            'high_prize_threshold_vnd' => $this->highPrizeThreshold($records),
+            'records' => $rows,
+        ];
+
+        return [
+            'content' => json_encode(
+                $payload,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR,
+            )."\n",
+            'filename' => self::MANUAL_DATA_FILENAME,
         ];
     }
 

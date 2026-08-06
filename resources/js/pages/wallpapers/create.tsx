@@ -190,7 +190,13 @@ export default function CreateWallpaper({
 
                             {analysisPrompt && analysisMode === 'manual' && (
                                 <>
-                                    <ManualPromptPanel prompt={analysisPrompt} title="傾向分析プロンプト" />
+                                    <ManualPromptPanel
+                                        prompt={analysisPrompt}
+                                        title="傾向分析プロンプト"
+                                        dataDownloadUrl={route('wallpaper-analyses.manual-data', {
+                                            contextHash: analysisPrompt.context_hash,
+                                        })}
+                                    />
                                     <form onSubmit={saveAnalysis} className="space-y-3 border-t pt-4">
                                         <ManualResultField
                                             id="analysis_markdown"

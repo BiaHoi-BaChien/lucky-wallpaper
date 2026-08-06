@@ -26,15 +26,21 @@ class ManualWallpaperWorkflowTest extends TestCase
         Queue::fake();
         Http::preventStrayRequests();
         $user = User::factory()->create();
-        Wallpaper::factory()->create(['prize_vnd' => 1_000_000]);
+        Wallpaper::factory()->create([
+            'prize_vnd' => 1_000_000,
+            'title' => 'プロンプトへ埋め込まない壁紙',
+        ]);
 
         $prompt = $this->actingAs($user)
             ->getJson('/wallpaper-analyses/manual-prompt')
             ->assertOk()
-            ->assertJsonStructure(['prompt', 'prompt_hash', 'context_hash', 'filename'])
+            ->assertJsonStructure(['prompt', 'prompt_hash', 'context_hash', 'filename', 'data_filename'])
             ->json();
         $this->assertStringContainsString('画面に表示するとともに', $prompt['prompt']);
         $this->assertStringContainsString('wallpaper-analysis.md', $prompt['prompt']);
+        $this->assertStringContainsString('wallpaper-analysis-data.json', $prompt['prompt']);
+        $this->assertStringContainsString($prompt['context_hash'], $prompt['prompt']);
+        $this->assertStringNotContainsString('プロンプトへ埋め込まない壁紙', $prompt['prompt']);
 
         $this->actingAs($user)
             ->post('/wallpaper-analyses/manual-result', [
@@ -62,6 +68,56 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertStringContainsString('再分析', $snapshot->refresh()->summary);
         $this->assertDatabaseCount('api_runs', 0);
         Queue::assertNothingPushed();
+    }
+
+    public function test_manual_analysis_data_download_requires_authentication(): void
+    {
+        $this->get('/wallpaper-analyses/manual-data/'.str_repeat('a', 64))
+            ->assertRedirect('/login');
+    }
+
+    public function test_manual_analysis_data_can_be_downloaded_for_the_prompt_snapshot(): void
+    {
+        $user = User::factory()->create();
+        Wallpaper::factory()->create([
+            'target_date' => '2026-08-01',
+            'prize_vnd' => 1_000_000,
+            'title' => '低額側の壁紙',
+        ]);
+        Wallpaper::factory()->create([
+            'target_date' => '2026-08-02',
+            'prize_vnd' => 5_000_000,
+            'title' => '高額側の壁紙',
+        ]);
+        $prompt = $this->actingAs($user)->getJson('/wallpaper-analyses/manual-prompt')->json();
+
+        $response = $this->get('/wallpaper-analyses/manual-data/'.$prompt['context_hash'])
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertHeader('Content-Disposition', 'attachment; filename="wallpaper-analysis-data.json"')
+            ->assertHeader('X-Content-Type-Options', 'nosniff');
+
+        $data = json_decode($response->getContent(), true, flags: JSON_THROW_ON_ERROR);
+        $this->assertSame('1', $data['schema_version']);
+        $this->assertSame(config('lucky.timezone'), $data['timezone']);
+        $this->assertSame($prompt['context_hash'], $data['data_hash']);
+        $this->assertSame(2, $data['record_count']);
+        $this->assertCount(2, $data['records']);
+        $this->assertSame('高額側の壁紙', $data['records'][0]['title']);
+        $this->assertTrue($data['records'][0]['is_high_prize']);
+        $this->assertSame('低額側の壁紙', $data['records'][1]['title']);
+    }
+
+    public function test_stale_manual_analysis_data_download_is_rejected(): void
+    {
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create(['prize_vnd' => 1_000_000]);
+        $prompt = $this->actingAs($user)->getJson('/wallpaper-analyses/manual-prompt')->json();
+        $wallpaper->update(['prize_vnd' => 2_000_000]);
+
+        $this->getJson('/wallpaper-analyses/manual-data/'.$prompt['context_hash'])
+            ->assertConflict()
+            ->assertJsonPath('message', '壁紙履歴が更新されています。プロンプトを再作成してください。');
     }
 
     public function test_stale_manual_analysis_prompt_is_rejected(): void
