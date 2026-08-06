@@ -10,6 +10,7 @@ use App\Services\HistoricalAnalysisService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -18,6 +19,30 @@ class WallpaperAnalysisController extends Controller
     public function prompt(HistoricalAnalysisService $analysisService): JsonResponse
     {
         return response()->json($analysisService->manualPrompt());
+    }
+
+    public function data(
+        string $contextHash,
+        HistoricalAnalysisService $analysisService,
+    ): Response|JsonResponse {
+        try {
+            $data = $analysisService->manualData($contextHash);
+        } catch (ExternalApiException $exception) {
+            if ($exception->errorCode === 'historical_analysis_stale_input') {
+                return response()->json([
+                    'message' => '壁紙履歴が更新されています。プロンプトを再作成してください。',
+                ], 409);
+            }
+
+            throw $exception;
+        }
+
+        return response($data['content'], 200, [
+            'Cache-Control' => 'private, no-store',
+            'Content-Disposition' => 'attachment; filename="'.$data['filename'].'"',
+            'Content-Type' => 'application/json; charset=UTF-8',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     public function storeManual(
