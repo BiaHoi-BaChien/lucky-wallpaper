@@ -40,6 +40,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertStringContainsString('wallpaper-analysis.md', $prompt['prompt']);
         $this->assertStringContainsString('wallpaper-analysis-data.json', $prompt['prompt']);
         $this->assertStringContainsString($prompt['context_hash'], $prompt['prompt']);
+        $this->assertStringContainsString('検証内容を含めないでください', $prompt['prompt']);
         $this->assertStringNotContainsString('プロンプトへ埋め込まない壁紙', $prompt['prompt']);
 
         $this->actingAs($user)
