@@ -71,7 +71,7 @@ export default function ShowWallpaper({
     const details = current ?? (hasCompositionDetails(wallpaper) ? wallpaper : null);
     const displayedTitle = details?.conclusion || details?.title || '構図の詳細';
     const compositionDetails = details ? formatCompositionDetails(details) : '';
-    const canCreateImage = !localImageAvailable && current?.status === 'proposed';
+    const canCreateImage = !localImageAvailable && details !== null;
     const canRestoreImage = !localImageAvailable && current?.status !== 'proposed';
     const [restoring, setRestoring] = useState(false);
     const [restoreError, setRestoreError] = useState<string>();
@@ -269,7 +269,7 @@ export default function ShowWallpaper({
                                                     onConfirm={() =>
                                                         router.post(
                                                             route('wallpapers.image', { wallpaper: wallpaper.id }),
-                                                            { proposal_id: current.id, api_confirmed: true },
+                                                            { proposal_id: current?.id, api_confirmed: true },
                                                             { preserveScroll: true },
                                                         )
                                                     }
