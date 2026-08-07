@@ -27,11 +27,13 @@ export default function Results({
     selectedDate,
     defaultDate,
     wallpaper,
+    imageAvailable,
     latestRun,
 }: {
     selectedDate: string;
     defaultDate: string;
     wallpaper: Wallpaper | null;
+    imageAvailable: boolean;
     latestRun: Operation | null;
 }) {
     const search = useForm({ date: selectedDate || defaultDate });
@@ -84,6 +86,18 @@ export default function Results({
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-5">
+                            {imageAvailable && (
+                                <figure className="mx-auto w-full max-w-md">
+                                    <div className="bg-muted aspect-[9/16] overflow-hidden rounded-md border">
+                                        <img
+                                            src={route('wallpapers.preview', { wallpaper: wallpaper.id })}
+                                            alt={`${wallpaper.target_date}の壁紙「${wallpaper.title ?? '構図名未設定'}」のプレビュー`}
+                                            className="size-full object-contain"
+                                        />
+                                    </div>
+                                    <figcaption className="text-muted-foreground mt-2 text-center text-sm">登録済み壁紙のプレビュー</figcaption>
+                                </figure>
+                            )}
                             <p className="text-sm whitespace-pre-wrap">{wallpaper.composition}</p>
                             <p className="text-muted-foreground text-sm">
                                 {notionConfigured

@@ -10,6 +10,7 @@ use App\Services\NotionClient;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -19,14 +20,20 @@ class ResultController extends Controller
     {
         $defaultDate = CarbonImmutable::now(config('lucky.timezone'))->toDateString();
         $date = $request->string('date')->toString();
+        $wallpaper = $date === '' ? null : Wallpaper::query()->where('target_date', $date)->first();
+        $localImageAvailable = $wallpaper?->image_disk !== null
+            && $wallpaper->image_path !== null
+            && Storage::disk($wallpaper->image_disk)->exists($wallpaper->image_path);
 
         return Inertia::render('results/index', [
             'defaultDate' => $defaultDate,
             'selectedDate' => $date,
-            'wallpaper' => $date === '' ? null : Wallpaper::query()->where('target_date', $date)->first(),
+            'wallpaper' => $wallpaper,
+            'imageAvailable' => $wallpaper !== null && ($localImageAvailable
+                || ($wallpaper->notion_page_id !== null && $notion->isConfigured())),
             'latestRun' => $date === '' || ! $notion->isConfigured() ? null : SyncRun::query()
                 ->where('type', 'notion_result')
-                ->where('wallpaper_id', Wallpaper::query()->where('target_date', $date)->value('id'))
+                ->where('wallpaper_id', $wallpaper?->id)
                 ->latest()
                 ->first(),
         ]);

@@ -4,7 +4,7 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
 
-        <title inertia>{{ config('app.name', 'Laravel') }}</title>
+        <title inertia>金運壁紙</title>
 
         <link rel="icon" href="{{ asset('site-icon.png') }}" type="image/png" sizes="180x180">
         <link rel="icon" href="{{ asset('site-icon.svg') }}" type="image/svg+xml">

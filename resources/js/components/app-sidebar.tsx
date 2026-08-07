@@ -14,14 +14,14 @@ const mainNavItems: NavItem[] = [
         icon: LayoutGrid,
     },
     {
-        title: '壁紙作成',
-        url: route('wallpapers.create'),
-        icon: Sparkles,
-    },
-    {
         title: '傾向分析',
         url: route('wallpaper-analyses.index'),
         icon: TrendingUp,
+    },
+    {
+        title: '壁紙作成',
+        url: route('wallpapers.create'),
+        icon: Sparkles,
     },
     {
         title: '壁紙履歴・ダウンロード',
