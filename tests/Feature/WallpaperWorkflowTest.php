@@ -50,6 +50,24 @@ class WallpaperWorkflowTest extends TestCase
                 ->where('selectedDate', ''));
     }
 
+    public function test_result_screen_reports_an_existing_image_as_available(): void
+    {
+        Storage::fake('local');
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'image_disk' => 'local',
+            'image_path' => 'wallpapers/result.jpg',
+        ]);
+        Storage::disk('local')->put('wallpapers/result.jpg', 'image-bytes');
+
+        $this->actingAs($user)
+            ->get('/results?date='.$wallpaper->target_date->format('Y-m-d'))
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('results/index', false)
+                ->where('wallpaper.id', $wallpaper->id)
+                ->where('imageAvailable', true));
+    }
+
     public function test_notion_backup_settings_receives_latest_restore(): void
     {
         $user = User::factory()->create();
