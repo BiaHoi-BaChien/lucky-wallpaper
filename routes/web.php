@@ -23,6 +23,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('notion-syncs', [NotionSyncController::class, 'store'])->name('notion-syncs.store');
 
     Route::get('wallpapers/create', [WallpaperController::class, 'create'])->name('wallpapers.create');
+    Route::get('wallpaper-analyses', [WallpaperAnalysisController::class, 'index'])->name('wallpaper-analyses.index');
     Route::get('wallpaper-analyses/manual-prompt', [WallpaperAnalysisController::class, 'prompt'])
         ->name('wallpaper-analyses.manual-prompt');
     Route::get('wallpaper-analyses/manual-data', [WallpaperAnalysisController::class, 'data'])

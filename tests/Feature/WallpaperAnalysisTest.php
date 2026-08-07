@@ -45,19 +45,25 @@ class WallpaperAnalysisTest extends TestCase
         Queue::assertPushed(GenerateHistoricalAnalysis::class, 1);
     }
 
-    public function test_latest_analysis_is_displayed_and_can_be_queued_again(): void
+    public function test_latest_analysis_is_displayed_on_analysis_page_and_can_be_queued_again(): void
     {
         Queue::fake();
         $user = User::factory()->create();
         Wallpaper::factory()->create(['prize_vnd' => 2_000_000]);
         $snapshot = $this->createCurrentAnalysis();
 
-        $this->actingAs($user)->get('/wallpapers/create')
+        $this->actingAs($user)->get('/wallpaper-analyses')
             ->assertInertia(fn (AssertableInertia $page) => $page
-                ->component('wallpapers/create', false)
+                ->component('wallpaper-analyses/index', false)
                 ->where('analysis.id', $snapshot->id)
                 ->where('analysis.markdown', $snapshot->summary)
                 ->where('analysis.is_latest', true));
+
+        $this->actingAs($user)->get('/wallpapers/create')
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('wallpapers/create', false)
+                ->where('analysisIsLatest', true)
+                ->missing('analysis'));
 
         $this->actingAs($user)
             ->post('/wallpaper-analyses', ['api_confirmed' => true])

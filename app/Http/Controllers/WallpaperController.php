@@ -32,28 +32,12 @@ class WallpaperController extends Controller
     {
         $defaultDate = CarbonImmutable::now(config('lucky.timezone'))->addDay()->toDateString();
         $selectedDate = $request->string('date')->toString() ?: $defaultDate;
-        $analysis = $analysisService->latestDisplayableSnapshot();
-        $currentDataHash = $analysisService->currentDataHash();
-        $analysisIsLatest = $analysis !== null
-            && $analysis->status === 'succeeded'
-            && hash_equals($currentDataHash, $analysis->data_hash)
-            && $analysis->prompt_version === (string) config('lucky.openai.prompt_version');
 
         return Inertia::render('wallpapers/create', [
             'defaultDate' => $defaultDate,
             'selectedDate' => $selectedDate,
             'existing' => Wallpaper::query()->where('target_date', $selectedDate)->first(),
-            'analysis' => $analysis === null ? null : [
-                'id' => $analysis->id,
-                'markdown' => $analysis->summary,
-                'is_latest' => $analysisIsLatest,
-                'created_at' => $analysis->updated_at?->toIso8601String(),
-                'statistics' => $analysis->statistics,
-            ],
-            'latestAnalysisRun' => ApiRun::query()
-                ->where('type', 'historical_analysis')
-                ->latest()
-                ->first(),
+            'analysisIsLatest' => $analysisService->currentSnapshot() !== null,
         ]);
     }
 
