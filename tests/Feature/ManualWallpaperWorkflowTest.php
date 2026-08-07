@@ -23,6 +23,7 @@ class ManualWallpaperWorkflowTest extends TestCase
 
     public function test_manual_analysis_can_be_saved_and_overwritten_without_api_usage(): void
     {
+        $this->travelTo('2026-08-07 12:00:00');
         Queue::fake();
         Http::preventStrayRequests();
         $user = User::factory()->create();
@@ -38,7 +39,8 @@ class ManualWallpaperWorkflowTest extends TestCase
             ->json();
         $this->assertStringContainsString('画面に表示するとともに', $prompt['prompt']);
         $this->assertStringContainsString('wallpaper-analysis.md', $prompt['prompt']);
-        $this->assertStringContainsString('wallpaper-analysis-data.json', $prompt['prompt']);
+        $this->assertSame('wallpaper-analysis-data-2026-08-07.json', $prompt['data_filename']);
+        $this->assertStringContainsString($prompt['data_filename'], $prompt['prompt']);
         $this->assertStringContainsString($prompt['context_hash'], $prompt['prompt']);
         $this->assertStringContainsString('検証内容を含めないでください', $prompt['prompt']);
         $this->assertStringNotContainsString('プロンプトへ埋め込まない壁紙', $prompt['prompt']);
@@ -79,6 +81,7 @@ class ManualWallpaperWorkflowTest extends TestCase
 
     public function test_manual_analysis_data_can_be_downloaded_for_the_prompt_snapshot(): void
     {
+        $this->travelTo('2026-08-07 12:00:00');
         $user = User::factory()->create();
         Wallpaper::factory()->create([
             'target_date' => '2026-08-01',
@@ -95,7 +98,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         $response = $this->get('/wallpaper-analyses/manual-data/'.$prompt['context_hash'])
             ->assertOk()
             ->assertHeader('Cache-Control', 'no-store, private')
-            ->assertHeader('Content-Disposition', 'attachment; filename="wallpaper-analysis-data.json"')
+            ->assertHeader('Content-Disposition', 'attachment; filename="wallpaper-analysis-data-2026-08-07.json"')
             ->assertHeader('X-Content-Type-Options', 'nosniff');
 
         $data = json_decode($response->getContent(), true, flags: JSON_THROW_ON_ERROR);

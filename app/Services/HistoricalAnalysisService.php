@@ -10,8 +10,6 @@ use Illuminate\Support\Collection;
 
 class HistoricalAnalysisService
 {
-    private const MANUAL_DATA_FILENAME = 'wallpaper-analysis-data.json';
-
     private const EMPTY_SUMMARY = <<<'MARKDOWN'
 # 高額当選壁紙の傾向分析
 
@@ -192,7 +190,7 @@ MARKDOWN;
     {
         $records = $this->records();
         $dataHash = $this->dataHash($records);
-        $dataFilename = self::MANUAL_DATA_FILENAME;
+        $dataFilename = $this->manualDataFilename();
         $recordCount = $records->count();
         $prompt = $this->chunkInstructions().<<<PROMPT
 
@@ -215,7 +213,7 @@ PROMPT;
             'prompt_hash' => hash('sha256', config('lucky.openai.prompt_version').'|'.$prompt),
             'context_hash' => $dataHash,
             'filename' => 'wallpaper-analysis-'.substr($dataHash, 0, 12).'.txt',
-            'data_filename' => self::MANUAL_DATA_FILENAME,
+            'data_filename' => $dataFilename,
             'default_result' => $records->isEmpty() ? self::EMPTY_SUMMARY : null,
         ];
     }
@@ -247,7 +245,7 @@ PROMPT;
                 $payload,
                 JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR,
             )."\n",
-            'filename' => self::MANUAL_DATA_FILENAME,
+            'filename' => $this->manualDataFilename(),
         ];
     }
 
@@ -277,6 +275,13 @@ PROMPT;
         ])->save();
 
         return $snapshot->refresh();
+    }
+
+    private function manualDataFilename(): string
+    {
+        return 'wallpaper-analysis-data-'
+            .now()->timezone((string) config('lucky.timezone'))->format('Y-m-d')
+            .'.json';
     }
 
     private function summarySchema(): array
