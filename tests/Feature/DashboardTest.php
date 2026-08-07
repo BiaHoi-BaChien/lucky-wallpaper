@@ -34,8 +34,8 @@ class DashboardTest extends TestCase
         $user = User::factory()->create();
         $wallpapers = collect([
             Wallpaper::factory()->create(['target_date' => '2026-08-01', 'prize_vnd' => 0]),
-            Wallpaper::factory()->create(['target_date' => '2026-08-02', 'prize_vnd' => 10_000]),
-            Wallpaper::factory()->create(['target_date' => '2026-08-03', 'prize_vnd' => 10_001]),
+            Wallpaper::factory()->create(['target_date' => '2026-08-02', 'prize_vnd' => 30_000]),
+            Wallpaper::factory()->create(['target_date' => '2026-08-03', 'prize_vnd' => 30_001]),
             Wallpaper::factory()->create(['target_date' => '2026-08-04', 'prize_vnd' => 100_000]),
             Wallpaper::factory()->create(['target_date' => '2026-08-05', 'prize_vnd' => 100_000]),
         ]);
@@ -46,7 +46,7 @@ class DashboardTest extends TestCase
             $this->actingAs($user)->get('/dashboard')
                 ->assertInertia(fn (AssertableInertia $page) => $page
                     ->has('moonChart', 3)
-                    ->where('moonChartMinimumPrizeVnd', 10_000)
+                    ->where('moonChartMinimumPrizeVnd', 30_000)
                     ->where('moonChart.0.id', $wallpapers[2]->id)
                     ->where('moonChart.0.prize_percentile', 0.3333)
                     ->where('moonChart.1.prize_percentile', 1)
