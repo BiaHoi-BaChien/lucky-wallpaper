@@ -331,6 +331,46 @@ class ManualWallpaperWorkflowTest extends TestCase
         Queue::assertNotPushed(GenerateWallpaperImage::class);
     }
 
+    public function test_manual_image_is_stored_for_existing_composition_without_proposal(): void
+    {
+        Storage::fake('local');
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'image_disk' => null,
+            'image_path' => null,
+        ]);
+
+        $this->actingAs($user)
+            ->post("/wallpapers/{$wallpaper->id}/image/manual-result", [
+                'image' => UploadedFile::fake()->image('wallpaper.png', 900, 1600),
+            ])
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $wallpaper->refresh();
+        Storage::disk('local')->assertExists($wallpaper->image_path);
+        $this->assertSame('generated', $wallpaper->state);
+        $this->assertNull($wallpaper->chosen_proposal_id);
+    }
+
+    public function test_manual_image_requires_existing_composition(): void
+    {
+        Storage::fake('local');
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::query()->create([
+            'target_date' => '2026-08-15',
+            'state' => 'draft',
+        ]);
+
+        $this->actingAs($user)
+            ->post("/wallpapers/{$wallpaper->id}/image/manual-result", [
+                'image' => UploadedFile::fake()->image('wallpaper.png', 900, 1600),
+            ])
+            ->assertSessionHasErrors('image');
+
+        $this->assertNull($wallpaper->refresh()->image_path);
+    }
+
     public function test_manual_image_rejects_an_invalid_optional_prompt_hash(): void
     {
         Storage::fake('local');
