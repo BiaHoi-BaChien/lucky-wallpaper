@@ -13,9 +13,30 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Inertia\Inertia;
+use Inertia\Response as InertiaResponse;
 
 class WallpaperAnalysisController extends Controller
 {
+    public function index(HistoricalAnalysisService $analysisService): InertiaResponse
+    {
+        $analysis = $analysisService->latestDisplayableSnapshot();
+
+        return Inertia::render('wallpaper-analyses/index', [
+            'analysis' => $analysis === null ? null : [
+                'id' => $analysis->id,
+                'markdown' => $analysis->summary,
+                'is_latest' => $analysisService->currentSnapshot()?->is($analysis) ?? false,
+                'created_at' => $analysis->updated_at?->toIso8601String(),
+                'statistics' => $analysis->statistics,
+            ],
+            'latestAnalysisRun' => ApiRun::query()
+                ->where('type', 'historical_analysis')
+                ->latest()
+                ->first(),
+        ]);
+    }
+
     public function prompt(HistoricalAnalysisService $analysisService): JsonResponse
     {
         return response()->json($analysisService->manualPrompt());
