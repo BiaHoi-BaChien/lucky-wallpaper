@@ -11,7 +11,7 @@ use Inertia\Response;
 
 class DashboardController extends Controller
 {
-    private const MIN_MOON_CHART_PRIZE_VND = 10_000;
+    private const MIN_MOON_CHART_PRIZE_VND = 30_000;
 
     public function __invoke(CalendarContextService $calendar): Response
     {
