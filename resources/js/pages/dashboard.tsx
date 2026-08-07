@@ -5,8 +5,6 @@ import { Head, Link } from '@inertiajs/react';
 import { ArrowUpRight, Database, Image, MoonStar, WalletCards } from 'lucide-react';
 import { useState } from 'react';
 
-type Season = '春' | '夏' | '秋' | '冬';
-
 interface MoonPoint {
     id: number;
     target_date: string;
@@ -16,8 +14,13 @@ interface MoonPoint {
     prize_percentile: number;
     moon_age: number;
     moon_phase: string;
-    season: Season;
     has_image: boolean;
+}
+
+interface TodayMoon {
+    target_date: string;
+    moon_age: number;
+    moon_phase: string;
 }
 
 interface Props {
@@ -27,6 +30,8 @@ interface Props {
         generated_images: number;
     };
     moonChart: MoonPoint[];
+    moonChartMinimumPrizeVnd: number;
+    todayMoon: TodayMoon | null;
 }
 
 const chartSize = 420;
@@ -34,14 +39,13 @@ const center = chartSize / 2;
 const innerRadius = 38;
 const outerRadius = 158;
 const lunarCycleDays = 29.53059;
-const seasonColors: Record<Season, string> = {
-    春: 'var(--chart-2)',
-    夏: 'var(--chart-1)',
-    秋: 'var(--chart-4)',
-    冬: 'var(--chart-3)',
+const moonDirections = {
+    waxing: { label: '満ちていく月', color: 'hsl(165, 60%, 45%)' },
+    waning: { label: '欠けていく月', color: 'hsl(280, 65%, 60%)' },
 };
+const todayColor = 'var(--destructive)';
 
-export default function Dashboard({ stats, moonChart }: Props) {
+export default function Dashboard({ stats, moonChart, moonChartMinimumPrizeVnd, todayMoon }: Props) {
     return (
         <AppLayout breadcrumbs={[{ title: 'ダッシュボード', href: route('dashboard') }]}>
             <Head title="ダッシュボード" />
@@ -51,18 +55,19 @@ export default function Dashboard({ stats, moonChart }: Props) {
                     <Stat title="累計賞金" value={`${stats.total_prize_vnd.toLocaleString()} VND`} icon={<WalletCards />} />
                     <Stat title="ローカル画像" value={`${stats.generated_images.toLocaleString()}枚`} icon={<Image />} />
                 </div>
-                <MoonLuckyStarChart points={moonChart} />
+                <MoonLuckyStarChart points={moonChart} minimumPrizeVnd={moonChartMinimumPrizeVnd} todayMoon={todayMoon} />
             </div>
         </AppLayout>
     );
 }
 
-function MoonLuckyStarChart({ points }: { points: MoonPoint[] }) {
+function MoonLuckyStarChart({ points, minimumPrizeVnd, todayMoon }: { points: MoonPoint[]; minimumPrizeVnd: number; todayMoon: TodayMoon | null }) {
     const [selectedId, setSelectedId] = useState(points.at(-1)?.id ?? null);
     const [failedPreviewId, setFailedPreviewId] = useState<number | null>(null);
     const selected = points.find((point) => point.id === selectedId) ?? points.at(-1) ?? null;
     const maxPrizeLog = Math.max(0, ...points.map((point) => Math.log1p(point.prize_vnd)));
     const selectedPosition = selected === null ? null : position(selected);
+    const todayPosition = todayMoon === null ? null : polarPoint(outerRadius, moonAngle(todayMoon.moon_age));
 
     const moveSelection = (event: React.KeyboardEvent<SVGGElement>, index: number) => {
         if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
@@ -83,13 +88,17 @@ function MoonLuckyStarChart({ points }: { points: MoonPoint[] }) {
                     <MoonStar className="text-primary mt-0.5 size-5 shrink-0" aria-hidden="true" />
                     <div className="min-w-0 space-y-1">
                         <CardTitle className="text-base sm:text-lg">月相ラッキー星図</CardTitle>
-                        <CardDescription>月齢 × 賞金パーセンタイル</CardDescription>
+                        <CardDescription>
+                            表示対象：{minimumPrizeVnd.toLocaleString()} VND超・{points.length.toLocaleString()}件
+                        </CardDescription>
                     </div>
                 </div>
             </CardHeader>
             <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
                 {points.length === 0 ? (
-                    <p className="text-muted-foreground py-12 text-center text-sm">賞金を登録すると星図が表示されます。</p>
+                    <p className="text-muted-foreground py-12 text-center text-sm">
+                        {minimumPrizeVnd.toLocaleString()} VNDを超える賞金実績がありません。
+                    </p>
                 ) : (
                     <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-center">
                         <div className="min-w-0">
@@ -101,7 +110,8 @@ function MoonLuckyStarChart({ points }: { points: MoonPoint[] }) {
                             >
                                 <title id="moon-chart-title">月相ラッキー星図</title>
                                 <desc id="moon-chart-description">
-                                    月齢を角度、賞金パーセンタイルを中心からの距離、賞金額を星の大きさで示します。
+                                    月齢を角度、表示対象内の賞金パーセンタイルを中心からの距離、賞金額を星の大きさで示します。色は月が満ちていく期間と欠けていく期間を表します。
+                                    {todayMoon && `朱色の破線は${todayMoon.target_date}の${todayMoon.moon_phase}の位置です。`}
                                 </desc>
 
                                 {[0.25, 0.5, 0.75, 1].map((percentile) => {
@@ -144,6 +154,21 @@ function MoonLuckyStarChart({ points }: { points: MoonPoint[] }) {
                                     );
                                 })}
 
+                                {todayPosition && (
+                                    <g aria-hidden="true">
+                                        <line
+                                            x1={center}
+                                            y1={center}
+                                            x2={todayPosition.x}
+                                            y2={todayPosition.y}
+                                            stroke={todayColor}
+                                            strokeWidth="2"
+                                            strokeDasharray="5 4"
+                                        />
+                                        <circle cx={todayPosition.x} cy={todayPosition.y} r="4" fill={todayColor} />
+                                    </g>
+                                )}
+
                                 {[
                                     ['新月', 0],
                                     ['上弦', lunarCycleDays / 4],
@@ -174,6 +199,7 @@ function MoonLuckyStarChart({ points }: { points: MoonPoint[] }) {
                                         const plotted = position(point);
                                         const radius = maxPrizeLog === 0 ? 5 : 5 + (Math.log1p(point.prize_vnd) / maxPrizeLog) * 7;
                                         const isSelected = point.id === selected?.id;
+                                        const direction = moonDirection(point.moon_age);
 
                                         return (
                                             <g
@@ -181,7 +207,7 @@ function MoonLuckyStarChart({ points }: { points: MoonPoint[] }) {
                                                 role="option"
                                                 aria-selected={isSelected}
                                                 tabIndex={isSelected ? 0 : -1}
-                                                aria-label={`${point.target_date}、${point.moon_phase}、${point.prize_vnd.toLocaleString()} VND`}
+                                                aria-label={`${point.target_date}、${point.moon_phase}、${moonDirections[direction].label}、${point.prize_vnd.toLocaleString()} VND`}
                                                 className="cursor-pointer outline-none"
                                                 onMouseEnter={() => setSelectedId(point.id)}
                                                 onFocus={() => setSelectedId(point.id)}
@@ -195,7 +221,7 @@ function MoonLuckyStarChart({ points }: { points: MoonPoint[] }) {
                                                     cx={plotted.x}
                                                     cy={plotted.y}
                                                     r={radius}
-                                                    fill={seasonColors[point.season]}
+                                                    fill={moonDirections[direction].color}
                                                     fillOpacity={isSelected ? 1 : 0.78}
                                                     stroke="var(--background)"
                                                     strokeWidth="2"
@@ -221,17 +247,19 @@ function MoonLuckyStarChart({ points }: { points: MoonPoint[] }) {
                                 )}
                             </svg>
 
-                            <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs" aria-label="季節の色分け">
-                                {(Object.keys(seasonColors) as Season[]).map((season) => (
-                                    <span key={season} className="inline-flex items-center gap-1.5">
-                                        <span
-                                            className="size-2.5 rounded-full"
-                                            style={{ backgroundColor: seasonColors[season] }}
-                                            aria-hidden="true"
-                                        />
-                                        {season}
+                            <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs" aria-label="月の満ち欠けと今日の位置">
+                                {Object.entries(moonDirections).map(([direction, { label, color }]) => (
+                                    <span key={direction} className="inline-flex items-center gap-1.5">
+                                        <span className="size-2.5 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
+                                        {label}
                                     </span>
                                 ))}
+                                {todayMoon && (
+                                    <span className="inline-flex items-center gap-1.5">
+                                        <span className="w-4 border-t-2 border-dashed" style={{ borderColor: todayColor }} aria-hidden="true" />
+                                        今日（{todayMoon.target_date}・{todayMoon.moon_phase}）
+                                    </span>
+                                )}
                             </div>
                         </div>
 
@@ -263,7 +291,7 @@ function MoonLuckyStarChart({ points }: { points: MoonPoint[] }) {
                                         <dd className="text-right font-medium">{selected.moon_phase}</dd>
                                         <dt className="text-muted-foreground">月齢</dt>
                                         <dd className="text-right font-medium">{selected.moon_age.toFixed(1)}</dd>
-                                        <dt className="text-muted-foreground">賞金順位</dt>
+                                        <dt className="text-muted-foreground">表示対象内の賞金順位</dt>
                                         <dd className="text-right font-medium">
                                             上位 {Math.max(1, Math.round((1 - selected.prize_percentile) * 100 + 1))}%
                                         </dd>
@@ -297,6 +325,10 @@ function radialDistance(percentile: number) {
 
 function moonAngle(age: number) {
     return (age / lunarCycleDays) * Math.PI * 2 - Math.PI / 2;
+}
+
+function moonDirection(age: number): keyof typeof moonDirections {
+    return age < lunarCycleDays / 2 ? 'waxing' : 'waning';
 }
 
 function polarPoint(radius: number, angle: number) {
