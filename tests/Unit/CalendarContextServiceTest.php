@@ -11,7 +11,9 @@ class CalendarContextServiceTest extends TestCase
     {
         config(['lucky.timezone' => 'Asia/Ho_Chi_Minh']);
 
-        $context = app(CalendarContextService::class)->forDate('2026-07-26');
+        $service = app(CalendarContextService::class);
+        $context = $service->forDate('2026-07-26');
+        $moon = $service->moonForDate('2026-07-26');
 
         $this->assertSame('2026-07-26', $context['target_date']);
         $this->assertSame('Asia/Ho_Chi_Minh', $context['timezone']);
@@ -22,5 +24,10 @@ class CalendarContextServiceTest extends TestCase
         $this->assertGreaterThan(11.5, $context['moon_age']);
         $this->assertLessThan(11.9, $context['moon_age']);
         $this->assertSame([], $context['warnings']);
+        $this->assertSame($context['moon_age'], $moon['moon_age']);
+        $this->assertSame($context['moon_illumination'], $moon['moon_illumination']);
+        $this->assertSame($context['moon_phase'], $moon['moon_phase']);
+        $this->assertArrayNotHasKey('season', $moon);
+        $this->assertSame([], $moon['warnings']);
     }
 }

@@ -9,6 +9,13 @@ use Throwable;
 
 class CalendarContextService
 {
+    public function moonForDate(string $targetDate): array
+    {
+        $date = CarbonImmutable::parse($targetDate, config('lucky.timezone'))->setTime(12, 0);
+
+        return $this->moonContext($date);
+    }
+
     public function forDate(string $targetDate): array
     {
         $date = CarbonImmutable::parse($targetDate, config('lucky.timezone'))->setTime(12, 0);
@@ -31,19 +38,13 @@ class CalendarContextService
             $context['warnings'][] = '暦情報（六曜・日干支・九星）を検証できなかったため省略しました。';
         }
 
-        try {
-            $moon = new MoonPhase($date->toDateTime());
-            $phase = $moon->getPhase();
-            $context += [
-                'moon_age' => round($moon->getAge(), 2),
-                'moon_illumination' => round($moon->getIllumination(), 4),
-                'moon_phase' => $this->moonPhaseName($phase),
-            ];
-        } catch (Throwable) {
-            $context['warnings'][] = '月齢情報を検証できなかったため省略しました。';
-        }
+        $moonContext = $this->moonContext($date);
 
-        return $context;
+        return [
+            ...$context,
+            ...$moonContext,
+            'warnings' => [...$context['warnings'], ...$moonContext['warnings']],
+        ];
     }
 
     private function season(int $month): string
@@ -68,5 +69,28 @@ class CalendarContextService
             $phase < 0.8125 => '下弦',
             default => '欠けていく三日月',
         };
+    }
+
+    private function moonContext(CarbonImmutable $date): array
+    {
+        $context = [
+            'target_date' => $date->toDateString(),
+            'timezone' => config('lucky.timezone'),
+            'warnings' => [],
+        ];
+
+        try {
+            $moon = new MoonPhase($date->toDateTime());
+            $phase = $moon->getPhase();
+            $context += [
+                'moon_age' => round($moon->getAge(), 2),
+                'moon_illumination' => round($moon->getIllumination(), 4),
+                'moon_phase' => $this->moonPhaseName($phase),
+            ];
+        } catch (Throwable) {
+            $context['warnings'][] = '月齢情報を検証できなかったため省略しました。';
+        }
+
+        return $context;
     }
 }
