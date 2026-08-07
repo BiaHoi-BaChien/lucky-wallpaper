@@ -22,20 +22,14 @@ class WallpaperAnalysisController extends Controller
     }
 
     public function data(
-        string $contextHash,
+        Request $request,
         HistoricalAnalysisService $analysisService,
-    ): Response|JsonResponse {
-        try {
-            $data = $analysisService->manualData($contextHash);
-        } catch (ExternalApiException $exception) {
-            if ($exception->errorCode === 'historical_analysis_stale_input') {
-                return response()->json([
-                    'message' => '壁紙履歴が更新されています。プロンプトを再作成してください。',
-                ], 409);
-            }
+    ): Response {
+        $validated = $request->validate([
+            'prompt_date' => ['required', 'date_format:Y-m-d'],
+        ]);
 
-            throw $exception;
-        }
+        $data = $analysisService->manualData($validated['prompt_date']);
 
         return response($data['content'], 200, [
             'Cache-Control' => 'private, no-store',
@@ -51,8 +45,8 @@ class WallpaperAnalysisController extends Controller
     ): RedirectResponse {
         $validated = $request->validate([
             'analysis_markdown' => ['nullable', 'string', 'max:1000000'],
-            'data_hash' => ['required', 'string', 'size:64'],
             'prompt_hash' => ['required', 'string', 'size:64'],
+            'prompt_date' => ['required', 'date_format:Y-m-d'],
         ]);
         $active = ApiRun::query()
             ->where('type', 'historical_analysis')
@@ -67,13 +61,13 @@ class WallpaperAnalysisController extends Controller
         try {
             $analysisService->saveManualResult(
                 (string) ($validated['analysis_markdown'] ?? ''),
-                $validated['data_hash'],
                 $validated['prompt_hash'],
+                $validated['prompt_date'],
             );
         } catch (ExternalApiException $exception) {
             if ($exception->errorCode === 'historical_analysis_stale_input') {
                 throw ValidationException::withMessages([
-                    'analysis_markdown' => '壁紙履歴が更新されています。プロンプトを再作成してください。',
+                    'analysis_markdown' => 'プロンプトが更新されています。プロンプトを再作成してください。',
                 ]);
             }
 

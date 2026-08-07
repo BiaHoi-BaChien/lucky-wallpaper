@@ -57,7 +57,7 @@ export default function CreateWallpaper({
     const targetDate = selectedDate || defaultDate;
     const apiProposalForm = useForm({ target_date: targetDate, api_confirmed: true });
     const apiAnalysisForm = useForm({ api_confirmed: true });
-    const manualAnalysisForm = useForm({ analysis_markdown: '', data_hash: '', prompt_hash: '' });
+    const manualAnalysisForm = useForm({ analysis_markdown: '', prompt_hash: '', prompt_date: '' });
     const manualProposalForm = useForm({ target_date: targetDate, proposal_json: '', prompt_hash: '' });
     const { flash } = usePage<SharedData>().props;
     const { operation: analysisOperation } = useOperation(latestAnalysisRun);
@@ -81,8 +81,8 @@ export default function CreateWallpaper({
             setAnalysisPrompt(prompt);
             manualAnalysisForm.setData({
                 analysis_markdown: prompt.default_result ?? '',
-                data_hash: prompt.context_hash,
                 prompt_hash: prompt.prompt_hash,
+                prompt_date: prompt.prompt_date ?? '',
             });
         } catch (error) {
             setAnalysisPromptError(error instanceof Error ? error.message : 'プロンプトを取得できませんでした。');
@@ -194,7 +194,7 @@ export default function CreateWallpaper({
                                         prompt={analysisPrompt}
                                         title="傾向分析プロンプト"
                                         dataDownloadUrl={route('wallpaper-analyses.manual-data', {
-                                            contextHash: analysisPrompt.context_hash,
+                                            prompt_date: analysisPrompt.prompt_date,
                                         })}
                                     />
                                     <form onSubmit={saveAnalysis} className="space-y-3 border-t pt-4">

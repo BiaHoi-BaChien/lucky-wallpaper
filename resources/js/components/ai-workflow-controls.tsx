@@ -22,9 +22,10 @@ export type ExecutionMode = 'manual' | 'api';
 export interface ManualPrompt {
     prompt: string;
     prompt_hash: string;
-    context_hash: string;
+    context_hash?: string;
     filename: string;
     data_filename?: string;
+    prompt_date?: string;
     default_result?: string | null;
 }
 

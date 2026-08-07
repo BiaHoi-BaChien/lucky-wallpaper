@@ -35,21 +35,26 @@ class ManualWallpaperWorkflowTest extends TestCase
         $prompt = $this->actingAs($user)
             ->getJson('/wallpaper-analyses/manual-prompt')
             ->assertOk()
-            ->assertJsonStructure(['prompt', 'prompt_hash', 'context_hash', 'filename', 'data_filename'])
+            ->assertJsonStructure(['prompt', 'prompt_hash', 'filename', 'data_filename', 'prompt_date'])
             ->json();
         $this->assertStringContainsString('画面に表示するとともに', $prompt['prompt']);
         $this->assertStringContainsString('wallpaper-analysis.md', $prompt['prompt']);
         $this->assertSame('wallpaper-analysis-data-2026-08-07.json', $prompt['data_filename']);
+        $this->assertSame('wallpaper-analysis-prompt-2026-08-07.txt', $prompt['filename']);
+        $this->assertSame('2026-08-07', $prompt['prompt_date']);
+        $this->assertArrayNotHasKey('context_hash', $prompt);
         $this->assertStringContainsString($prompt['data_filename'], $prompt['prompt']);
-        $this->assertStringContainsString($prompt['context_hash'], $prompt['prompt']);
+        $this->assertStringContainsString('ファイル名が上記ファイル名と完全に一致', $prompt['prompt']);
         $this->assertStringContainsString('検証内容を含めないでください', $prompt['prompt']);
+        $this->assertStringNotContainsString('data_hash', $prompt['prompt']);
+        $this->assertStringNotContainsString('データハッシュ', $prompt['prompt']);
         $this->assertStringNotContainsString('プロンプトへ埋め込まない壁紙', $prompt['prompt']);
 
         $this->actingAs($user)
             ->post('/wallpaper-analyses/manual-result', [
                 'analysis_markdown' => "## 初回分析\n\n- 中央配置",
-                'data_hash' => $prompt['context_hash'],
                 'prompt_hash' => $prompt['prompt_hash'],
+                'prompt_date' => $prompt['prompt_date'],
             ])
             ->assertRedirect()
             ->assertSessionHasNoErrors();
@@ -61,8 +66,8 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->actingAs($user)
             ->post('/wallpaper-analyses/manual-result', [
                 'analysis_markdown' => "## 再分析\n\n- 左右非対称",
-                'data_hash' => $prompt['context_hash'],
                 'prompt_hash' => $prompt['prompt_hash'],
+                'prompt_date' => $prompt['prompt_date'],
             ])
             ->assertRedirect()
             ->assertSessionHasNoErrors();
@@ -75,8 +80,18 @@ class ManualWallpaperWorkflowTest extends TestCase
 
     public function test_manual_analysis_data_download_requires_authentication(): void
     {
-        $this->get('/wallpaper-analyses/manual-data/'.str_repeat('a', 64))
+        $this->get('/wallpaper-analyses/manual-data')
             ->assertRedirect('/login');
+    }
+
+    public function test_manual_analysis_data_rejects_invalid_prompt_date(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->getJson('/wallpaper-analyses/manual-data?prompt_date=invalid')
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('prompt_date');
     }
 
     public function test_manual_analysis_data_can_be_downloaded_for_the_prompt_snapshot(): void
@@ -95,7 +110,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         ]);
         $prompt = $this->actingAs($user)->getJson('/wallpaper-analyses/manual-prompt')->json();
 
-        $response = $this->get('/wallpaper-analyses/manual-data/'.$prompt['context_hash'])
+        $response = $this->get('/wallpaper-analyses/manual-data?prompt_date='.$prompt['prompt_date'])
             ->assertOk()
             ->assertHeader('Cache-Control', 'no-store, private')
             ->assertHeader('Content-Disposition', 'attachment; filename="wallpaper-analysis-data-2026-08-07.json"')
@@ -104,7 +119,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         $data = json_decode($response->getContent(), true, flags: JSON_THROW_ON_ERROR);
         $this->assertSame('1', $data['schema_version']);
         $this->assertSame(config('lucky.timezone'), $data['timezone']);
-        $this->assertSame($prompt['context_hash'], $data['data_hash']);
+        $this->assertArrayNotHasKey('data_hash', $data);
         $this->assertSame(2, $data['record_count']);
         $this->assertCount(2, $data['records']);
         $this->assertSame('高額側の壁紙', $data['records'][0]['title']);
@@ -112,19 +127,27 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertSame('低額側の壁紙', $data['records'][1]['title']);
     }
 
-    public function test_stale_manual_analysis_data_download_is_rejected(): void
+    public function test_manual_analysis_keeps_prompt_date_after_midnight(): void
     {
+        $this->travelTo('2026-08-07 12:00:00');
+        Queue::fake();
         $user = User::factory()->create();
-        $wallpaper = Wallpaper::factory()->create(['prize_vnd' => 1_000_000]);
+        Wallpaper::factory()->create(['prize_vnd' => 1_000_000]);
         $prompt = $this->actingAs($user)->getJson('/wallpaper-analyses/manual-prompt')->json();
-        $wallpaper->update(['prize_vnd' => 2_000_000]);
+        $this->travelTo('2026-08-08 12:00:00');
 
-        $this->getJson('/wallpaper-analyses/manual-data/'.$prompt['context_hash'])
-            ->assertConflict()
-            ->assertJsonPath('message', '壁紙履歴が更新されています。プロンプトを再作成してください。');
+        $this->get('/wallpaper-analyses/manual-data?prompt_date='.$prompt['prompt_date'])
+            ->assertOk()
+            ->assertHeader('Content-Disposition', 'attachment; filename="wallpaper-analysis-data-2026-08-07.json"');
+
+        $this->post('/wallpaper-analyses/manual-result', [
+            'analysis_markdown' => '# 日付またぎの分析',
+            'prompt_hash' => $prompt['prompt_hash'],
+            'prompt_date' => $prompt['prompt_date'],
+        ])->assertSessionHasNoErrors();
     }
 
-    public function test_stale_manual_analysis_prompt_is_rejected(): void
+    public function test_manual_analysis_result_does_not_require_data_hash(): void
     {
         Queue::fake();
         $user = User::factory()->create();
@@ -134,13 +157,16 @@ class ManualWallpaperWorkflowTest extends TestCase
 
         $this->actingAs($user)
             ->post('/wallpaper-analyses/manual-result', [
-                'analysis_markdown' => '# 古い分析',
-                'data_hash' => $prompt['context_hash'],
+                'analysis_markdown' => '# 更新後の分析',
                 'prompt_hash' => $prompt['prompt_hash'],
+                'prompt_date' => $prompt['prompt_date'],
             ])
-            ->assertSessionHasErrors('analysis_markdown');
+            ->assertSessionHasNoErrors();
 
-        $this->assertDatabaseCount('analysis_snapshots', 0);
+        $this->assertSame(
+            app(HistoricalAnalysisService::class)->currentDataHash(),
+            AnalysisSnapshot::query()->sole()->data_hash,
+        );
         $this->assertDatabaseCount('api_runs', 0);
     }
 
@@ -158,8 +184,8 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->actingAs($user)
             ->post('/wallpaper-analyses/manual-result', [
                 'analysis_markdown' => '',
-                'data_hash' => $prompt['context_hash'],
                 'prompt_hash' => $prompt['prompt_hash'],
+                'prompt_date' => $prompt['prompt_date'],
             ])
             ->assertSessionHasNoErrors();
 

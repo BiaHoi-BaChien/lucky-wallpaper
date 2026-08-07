@@ -25,8 +25,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('wallpapers/create', [WallpaperController::class, 'create'])->name('wallpapers.create');
     Route::get('wallpaper-analyses/manual-prompt', [WallpaperAnalysisController::class, 'prompt'])
         ->name('wallpaper-analyses.manual-prompt');
-    Route::get('wallpaper-analyses/manual-data/{contextHash}', [WallpaperAnalysisController::class, 'data'])
-        ->where('contextHash', '[0-9a-f]{64}')
+    Route::get('wallpaper-analyses/manual-data', [WallpaperAnalysisController::class, 'data'])
         ->name('wallpaper-analyses.manual-data');
     Route::post('wallpaper-analyses/manual-result', [WallpaperAnalysisController::class, 'storeManual'])
         ->name('wallpaper-analyses.manual-result');

@@ -63,7 +63,7 @@ php artisan serve
 - `GET /settings/notion-backup`: Notionバックアップと復元の設定画面
 - `POST /notion-syncs`: Notionバックアップから実績情報を非同期復元
 - `GET /wallpaper-analyses/manual-prompt`: 手動傾向分析用プロンプトを取得
-- `GET /wallpaper-analyses/manual-data/{contextHash}`: 手動傾向分析用データJSONをダウンロード
+- `GET /wallpaper-analyses/manual-data?prompt_date=YYYY-MM-DD`: 手動傾向分析用データJSONをダウンロード
 - `POST /wallpaper-analyses/manual-result`: ChatGPTの傾向分析結果を保存
 - `POST /wallpaper-analyses`: 高額当選壁紙の傾向分析をOpenAIキューへ登録（明示確認必須）
 - `GET|POST /wallpapers/proposals/manual-*`: 対象日の手動構図提案プロンプト取得・結果保存

@@ -180,29 +180,28 @@ MARKDOWN;
      * @return array{
      *     prompt: string,
      *     prompt_hash: string,
-     *     context_hash: string,
      *     filename: string,
      *     data_filename: string,
+     *     prompt_date: string,
      *     default_result: string|null
      * }
      */
-    public function manualPrompt(): array
+    public function manualPrompt(?string $promptDate = null): array
     {
+        $promptDate ??= now()->timezone((string) config('lucky.timezone'))->format('Y-m-d');
         $records = $this->records();
-        $dataHash = $this->dataHash($records);
-        $dataFilename = $this->manualDataFilename();
+        $dataFilename = $this->manualDataFilename($promptDate);
         $recordCount = $records->count();
         $prompt = $this->chunkInstructions().<<<PROMPT
 
 
 ChatGPTプロジェクトの「利用可能なソース」に、次の分析データJSONを登録してから分析してください。
 ファイル名: {$dataFilename}
-データハッシュ: {$dataHash}
 対象件数: {$recordCount}件
 
-PythonでJSONファイル全体を読み込み、data_hash、record_count、recordsの実件数、is_high_prize=true/falseの件数を最初に検証してください。
-JSON内のdata_hashが上記データハッシュと一致しない場合は分析を中止し、正しいファイルの登録を依頼してください。
-検証は内部で行い、回答には「検証結果」の見出しや、data_hash、record_count、件数確認などの検証内容を含めないでください。
+登録したJSONのファイル名が上記ファイル名と完全に一致することを確認し、一致しない場合は分析を中止して正しいファイルの登録を依頼してください。
+PythonでJSONファイル全体を読み込み、record_count、recordsの実件数、is_high_prize=true/falseの件数を最初に検証してください。
+検証は内部で行い、回答には「検証結果」の見出しや、record_count、件数確認などの検証内容を含めないでください。
 一部レコードの検索結果だけで判断せず、recordsの全件を一括して分析してください。追加質問は行わないでください。
 回答は「# 高額当選壁紙の傾向分析」から始まる日本語Markdown本文だけにしてください。JSONやコードフェンスは使用しないでください。
 分析結果は画面に表示するとともに、同じ内容をUTF-8のMarkdownファイル（wallpaper-analysis.md）としてダウンロードできるようにしてください。
@@ -211,9 +210,9 @@ PROMPT;
         return [
             'prompt' => $prompt,
             'prompt_hash' => hash('sha256', config('lucky.openai.prompt_version').'|'.$prompt),
-            'context_hash' => $dataHash,
-            'filename' => 'wallpaper-analysis-'.substr($dataHash, 0, 12).'.txt',
+            'filename' => 'wallpaper-analysis-prompt-'.$promptDate.'.txt',
             'data_filename' => $dataFilename,
+            'prompt_date' => $promptDate,
             'default_result' => $records->isEmpty() ? self::EMPTY_SUMMARY : null,
         ];
     }
@@ -221,20 +220,14 @@ PROMPT;
     /**
      * @return array{content: string, filename: string}
      */
-    public function manualData(string $expectedDataHash): array
+    public function manualData(string $promptDate): array
     {
         $records = $this->records();
-        $dataHash = $this->dataHash($records);
-        if (! hash_equals($dataHash, $expectedDataHash)) {
-            throw new ExternalApiException('historical_analysis_stale_input', false);
-        }
-
         $rows = collect($this->chunks($records))->flatten(1)->values()->all();
         $payload = [
             'schema_version' => '1',
             'generated_at' => now()->timezone((string) config('lucky.timezone'))->toIso8601String(),
             'timezone' => (string) config('lucky.timezone'),
-            'data_hash' => $dataHash,
             'record_count' => $records->count(),
             'high_prize_threshold_vnd' => $this->highPrizeThreshold($records),
             'records' => $rows,
@@ -245,21 +238,19 @@ PROMPT;
                 $payload,
                 JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR,
             )."\n",
-            'filename' => $this->manualDataFilename(),
+            'filename' => $this->manualDataFilename($promptDate),
         ];
     }
 
-    public function saveManualResult(string $markdown, string $dataHash, string $promptHash): AnalysisSnapshot
+    public function saveManualResult(string $markdown, string $promptHash, string $promptDate): AnalysisSnapshot
     {
-        $prompt = $this->manualPrompt();
-        if (
-            ! hash_equals($prompt['context_hash'], $dataHash)
-            || ! hash_equals($prompt['prompt_hash'], $promptHash)
-        ) {
+        $prompt = $this->manualPrompt($promptDate);
+        if (! hash_equals($prompt['prompt_hash'], $promptHash)) {
             throw new ExternalApiException('historical_analysis_stale_input', false);
         }
 
         $records = $this->records();
+        $dataHash = $this->dataHash($records);
         $summary = $records->isEmpty()
             ? self::EMPTY_SUMMARY
             : $this->normalizeMarkdown($markdown);
@@ -277,11 +268,9 @@ PROMPT;
         return $snapshot->refresh();
     }
 
-    private function manualDataFilename(): string
+    private function manualDataFilename(string $promptDate): string
     {
-        return 'wallpaper-analysis-data-'
-            .now()->timezone((string) config('lucky.timezone'))->format('Y-m-d')
-            .'.json';
+        return 'wallpaper-analysis-data-'.$promptDate.'.json';
     }
 
     private function summarySchema(): array
