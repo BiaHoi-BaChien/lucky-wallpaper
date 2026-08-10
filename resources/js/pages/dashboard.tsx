@@ -39,6 +39,20 @@ const center = chartSize / 2;
 const innerRadius = 38;
 const outerRadius = 158;
 const lunarCycleDays = 29.53059;
+const moonPhases = [
+    { icon: '🌑', label: '新月' },
+    { icon: '🌒', label: '満ちていく三日月' },
+    { icon: '🌒', label: '満ちていく三日月' },
+    { icon: '🌓', label: '上弦' },
+    { icon: '🌔', label: '満ちていく凸月' },
+    { icon: '🌔', label: '満ちていく凸月' },
+    { icon: '🌕', label: '満月' },
+    { icon: '🌖', label: '欠けていく凸月' },
+    { icon: '🌖', label: '欠けていく凸月' },
+    { icon: '🌗', label: '下弦' },
+    { icon: '🌘', label: '欠けていく三日月' },
+    { icon: '🌘', label: '欠けていく三日月' },
+] as const;
 const moonDirections = {
     waxing: { label: '満ちていく月', color: 'hsl(165, 60%, 45%)' },
     waning: { label: '欠けていく月', color: 'hsl(280, 65%, 60%)' },
@@ -111,6 +125,7 @@ function MoonLuckyStarChart({ points, minimumPrizeVnd, todayMoon }: { points: Mo
                                 <title id="moon-chart-title">月相ラッキー星図</title>
                                 <desc id="moon-chart-description">
                                     月齢を角度、表示対象内の賞金パーセンタイルを中心からの距離、賞金額を星の大きさで示します。色は月が満ちていく期間と欠けていく期間を表します。
+                                    外周は新月を12時として12分割し、各位置の月相を示します。
                                     {todayMoon && `朱色の破線は${todayMoon.target_date}の${todayMoon.moon_phase}の位置です。`}
                                 </desc>
 
@@ -136,21 +151,27 @@ function MoonLuckyStarChart({ points, minimumPrizeVnd, todayMoon }: { points: Mo
                                     );
                                 })}
 
-                                {[0, Math.PI / 2, Math.PI, (Math.PI * 3) / 2].map((angle) => {
+                                {moonPhases.map(({ icon, label }, index) => {
+                                    const angle = moonAngle((lunarCycleDays * index) / moonPhases.length);
                                     const end = polarPoint(outerRadius, angle);
+                                    const iconPosition = polarPoint(190, angle);
 
                                     return (
-                                        <line
-                                            key={angle}
-                                            x1={center}
-                                            y1={center}
-                                            x2={end.x}
-                                            y2={end.y}
-                                            stroke="currentColor"
-                                            className="text-border"
-                                            strokeWidth="1"
-                                            aria-hidden="true"
-                                        />
+                                        <g key={index} aria-hidden="true">
+                                            <line
+                                                x1={center}
+                                                y1={center}
+                                                x2={end.x}
+                                                y2={end.y}
+                                                stroke="currentColor"
+                                                className="text-border"
+                                                strokeWidth="1"
+                                            />
+                                            <text x={iconPosition.x} y={iconPosition.y} textAnchor="middle" dominantBaseline="middle" fontSize="18">
+                                                <title>{label}</title>
+                                                {icon}
+                                            </text>
+                                        </g>
                                     );
                                 })}
 
@@ -168,31 +189,6 @@ function MoonLuckyStarChart({ points, minimumPrizeVnd, todayMoon }: { points: Mo
                                         <circle cx={todayPosition.x} cy={todayPosition.y} r="4" fill={todayColor} />
                                     </g>
                                 )}
-
-                                {[
-                                    ['新月', 0],
-                                    ['上弦', lunarCycleDays / 4],
-                                    ['満月', lunarCycleDays / 2],
-                                    ['下弦', (lunarCycleDays * 3) / 4],
-                                ].map(([label, age]) => {
-                                    const angle = moonAngle(Number(age));
-                                    const point = polarPoint(190, angle);
-
-                                    return (
-                                        <text
-                                            key={label}
-                                            x={point.x}
-                                            y={point.y}
-                                            textAnchor="middle"
-                                            dominantBaseline="middle"
-                                            fill="currentColor"
-                                            className="text-foreground text-xs font-medium"
-                                            aria-hidden="true"
-                                        >
-                                            {label}
-                                        </text>
-                                    );
-                                })}
 
                                 <g role="listbox" aria-label="壁紙実績。矢印キーで実績を選択できます。">
                                     {points.map((point, index) => {
