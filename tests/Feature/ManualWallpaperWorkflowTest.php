@@ -44,7 +44,12 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertSame('2026-08-07', $prompt['prompt_date']);
         $this->assertArrayNotHasKey('context_hash', $prompt);
         $this->assertStringContainsString($prompt['data_filename'], $prompt['prompt']);
-        $this->assertStringContainsString('ファイル名が上記ファイル名と完全に一致', $prompt['prompt']);
+        $this->assertStringContainsString('このチャットに、次の分析データJSONを添付', $prompt['prompt']);
+        $this->assertStringContainsString('対象件数: 1件', $prompt['prompt']);
+        $this->assertStringContainsString('添付されたJSONのファイル名は問いません', $prompt['prompt']);
+        $this->assertStringContainsString('上記の対象件数に一致しない場合は分析を中止', $prompt['prompt']);
+        $this->assertStringNotContainsString('利用可能なソース', $prompt['prompt']);
+        $this->assertStringNotContainsString('ファイル名が上記ファイル名と完全に一致', $prompt['prompt']);
         $this->assertStringContainsString('検証内容を含めないでください', $prompt['prompt']);
         $this->assertStringNotContainsString('data_hash', $prompt['prompt']);
         $this->assertStringNotContainsString('データハッシュ', $prompt['prompt']);

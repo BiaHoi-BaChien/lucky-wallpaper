@@ -195,12 +195,12 @@ MARKDOWN;
         $prompt = $this->chunkInstructions().<<<PROMPT
 
 
-ChatGPTプロジェクトの「利用可能なソース」に、次の分析データJSONを登録してから分析してください。
-ファイル名: {$dataFilename}
+このチャットに、次の分析データJSONを添付してから分析してください。
+ダウンロード時のファイル名: {$dataFilename}
 対象件数: {$recordCount}件
 
-登録したJSONのファイル名が上記ファイル名と完全に一致することを確認し、一致しない場合は分析を中止して正しいファイルの登録を依頼してください。
-PythonでJSONファイル全体を読み込み、record_count、recordsの実件数、is_high_prize=true/falseの件数を最初に検証してください。
+添付されたJSONのファイル名は問いません。PythonでJSONファイル全体を読み込み、record_count、recordsの実件数、is_high_prize=true/falseの件数を最初に検証してください。
+record_countとrecordsの実件数が上記の対象件数に一致しない場合は分析を中止し、正しいデータファイルの添付を依頼してください。
 検証は内部で行い、回答には「検証結果」の見出しや、record_count、件数確認などの検証内容を含めないでください。
 一部レコードの検索結果だけで判断せず、recordsの全件を一括して分析してください。追加質問は行わないでください。
 回答は「# 高額当選壁紙の傾向分析」から始まる日本語Markdown本文だけにしてください。JSONやコードフェンスは使用しないでください。
