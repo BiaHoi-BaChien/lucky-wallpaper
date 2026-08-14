@@ -16,11 +16,12 @@ import AppLayout from '@/layouts/app-layout';
 import { SharedData } from '@/types';
 import { Head, useForm, usePage } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
-import { FormEvent, ReactNode, useState } from 'react';
+import { FormEvent, useState } from 'react';
 
 interface Analysis {
     id: number;
     markdown: string;
+    html: string;
     is_latest: boolean;
     created_at: string | null;
     statistics: {
@@ -156,8 +157,8 @@ export default function WallpaperAnalyses({ analysis, latestAnalysisRun }: { ana
                         )}
 
                         {analysis ? (
-                            <div className="bg-muted/50 rounded-lg border p-4">
-                                <MarkdownAnalysis markdown={analysis.markdown} />
+                            <div className="border-t pt-6">
+                                <MarkdownAnalysis html={analysis.html} />
                             </div>
                         ) : (
                             !analysisActive && <p className="text-muted-foreground text-sm">分析結果はまだありません。</p>
@@ -169,27 +170,6 @@ export default function WallpaperAnalyses({ analysis, latestAnalysisRun }: { ana
     );
 }
 
-function MarkdownAnalysis({ markdown }: { markdown: string }) {
-    return (
-        <div className="space-y-2 text-sm leading-6">
-            {markdown.split('\n').map((line, index) => {
-                let content: ReactNode = line;
-                if (line.startsWith('# ')) {
-                    content = <h2 className="text-lg font-semibold">{line.slice(2)}</h2>;
-                } else if (line.startsWith('## ')) {
-                    content = <h3 className="pt-2 font-semibold">{line.slice(3)}</h3>;
-                } else if (line.startsWith('### ')) {
-                    content = <h4 className="pt-1 font-medium">{line.slice(4)}</h4>;
-                } else if (/^[-*] /.test(line)) {
-                    content = <p className="pl-4 before:mr-2 before:content-['•']">{line.slice(2)}</p>;
-                } else if (line === '') {
-                    content = <span className="block h-1" />;
-                } else {
-                    content = <p>{line}</p>;
-                }
-
-                return <div key={`${index}-${line}`}>{content}</div>;
-            })}
-        </div>
-    );
+function MarkdownAnalysis({ html }: { html: string }) {
+    return <div className="markdown-analysis" dangerouslySetInnerHTML={{ __html: html }} />;
 }

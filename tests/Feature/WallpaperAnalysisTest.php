@@ -57,6 +57,7 @@ class WallpaperAnalysisTest extends TestCase
                 ->component('wallpaper-analyses/index', false)
                 ->where('analysis.id', $snapshot->id)
                 ->where('analysis.markdown', $snapshot->summary)
+                ->where('analysis.html', "<h1>高額当選壁紙の傾向分析</h1>\n<ul>\n<li><strong>中央配置</strong>が多い</li>\n</ul>\n")
                 ->where('analysis.is_latest', true));
 
         $this->actingAs($user)->get('/wallpapers/create')
@@ -96,6 +97,21 @@ class WallpaperAnalysisTest extends TestCase
 
         Queue::assertNotPushed(GenerateCompositionProposal::class);
         $this->assertDatabaseCount('wallpapers', 0);
+    }
+
+    public function test_analysis_html_strips_raw_html_and_unsafe_links(): void
+    {
+        $user = User::factory()->create();
+        Wallpaper::factory()->create(['prize_vnd' => 2_000_000]);
+        $snapshot = $this->createCurrentAnalysis();
+        $snapshot->update([
+            'summary' => "<script>alert('unsafe')</script>\n\n[危険なリンク](javascript:alert('unsafe'))",
+        ]);
+
+        $this->actingAs($user)->get('/wallpaper-analyses')
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('analysis.html', fn (string $html): bool => ! str_contains($html, '<script')
+                    && ! str_contains($html, 'javascript:')));
     }
 
     public function test_analysis_job_stores_markdown_result_and_statistics(): void
@@ -197,7 +213,7 @@ class WallpaperAnalysisTest extends TestCase
             'data_hash' => app(HistoricalAnalysisService::class)->currentDataHash(),
             'prompt_version' => config('lucky.openai.prompt_version'),
             'model' => config('lucky.openai.text_model'),
-            'summary' => "# 高額当選壁紙の傾向分析\n\n- 中央配置が多い",
+            'summary' => "# 高額当選壁紙の傾向分析\n\n- **中央配置**が多い",
             'statistics' => ['records' => Wallpaper::query()->whereNotNull('prize_vnd')->count()],
             'status' => 'succeeded',
         ]);
