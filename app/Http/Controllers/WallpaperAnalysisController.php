@@ -12,6 +12,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
@@ -26,6 +27,10 @@ class WallpaperAnalysisController extends Controller
             'analysis' => $analysis === null ? null : [
                 'id' => $analysis->id,
                 'markdown' => $analysis->summary,
+                'html' => Str::markdown($analysis->summary, [
+                    'html_input' => 'strip',
+                    'allow_unsafe_links' => false,
+                ]),
                 'is_latest' => $analysisService->currentSnapshot()?->is($analysis) ?? false,
                 'created_at' => $analysis->updated_at?->toIso8601String(),
                 'statistics' => $analysis->statistics,

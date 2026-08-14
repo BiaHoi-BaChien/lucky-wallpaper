@@ -156,3 +156,106 @@
         @apply bg-background text-foreground;
     }
 }
+
+@layer components {
+    .markdown-analysis {
+        @apply text-sm leading-7;
+        overflow-wrap: anywhere;
+    }
+
+    .markdown-analysis > :first-child {
+        @apply mt-0;
+    }
+
+    .markdown-analysis > :last-child {
+        @apply mb-0;
+    }
+
+    .markdown-analysis h1 {
+        @apply mt-8 mb-5 text-2xl font-bold;
+    }
+
+    .markdown-analysis h2 {
+        @apply mt-8 mb-4 border-b pb-2 text-xl font-semibold;
+    }
+
+    .markdown-analysis h3 {
+        @apply mt-6 mb-3 text-lg font-semibold;
+    }
+
+    .markdown-analysis h4,
+    .markdown-analysis h5,
+    .markdown-analysis h6 {
+        @apply mt-5 mb-2 font-semibold;
+    }
+
+    .markdown-analysis p {
+        @apply my-4;
+    }
+
+    .markdown-analysis ul {
+        @apply my-4 list-disc space-y-2 pl-6;
+    }
+
+    .markdown-analysis ol {
+        @apply my-4 list-decimal space-y-2 pl-6;
+    }
+
+    .markdown-analysis li > ul,
+    .markdown-analysis li > ol {
+        @apply my-2;
+    }
+
+    .markdown-analysis strong {
+        @apply font-semibold;
+    }
+
+    .markdown-analysis a {
+        @apply text-primary decoration-primary/40 hover:decoration-primary underline underline-offset-4;
+    }
+
+    .markdown-analysis blockquote {
+        @apply border-primary/40 bg-muted/50 text-muted-foreground my-5 border-l-4 px-4 py-2;
+    }
+
+    .markdown-analysis blockquote > :first-child {
+        @apply mt-0;
+    }
+
+    .markdown-analysis blockquote > :last-child {
+        @apply mb-0;
+    }
+
+    .markdown-analysis code {
+        @apply bg-muted rounded px-1.5 py-0.5 font-mono text-[0.875em];
+    }
+
+    .markdown-analysis pre {
+        @apply bg-foreground text-background my-5 overflow-x-auto rounded-md p-4;
+    }
+
+    .markdown-analysis pre code {
+        @apply bg-transparent p-0 text-sm;
+    }
+
+    .markdown-analysis table {
+        @apply my-5 block w-full border-collapse overflow-x-auto text-left;
+    }
+
+    .markdown-analysis th,
+    .markdown-analysis td {
+        @apply min-w-32 border px-3 py-2 align-top;
+    }
+
+    .markdown-analysis th {
+        @apply bg-muted font-semibold;
+    }
+
+    .markdown-analysis hr {
+        @apply my-8 border-t;
+    }
+
+    .markdown-analysis img {
+        @apply my-5 h-auto max-w-full rounded-md;
+    }
+}
