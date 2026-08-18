@@ -26,7 +26,10 @@ class HistoricalAnalysisService
 この分析は過去実績との相関を扱うもので、当選や当選確率の向上を保証するものではありません。
 MARKDOWN;
 
-    public function __construct(private readonly OpenAiClient $openAi) {}
+    public function __construct(
+        private readonly OpenAiClient $openAi,
+        private readonly CalendarContextService $calendar,
+    ) {}
 
     public function currentDataHash(): string
     {
@@ -149,8 +152,10 @@ MARKDOWN;
         $characters = 0;
 
         foreach ($records->sortByDesc('prize_vnd') as $record) {
+            $moon = $this->calendar->moonForDate($record->target_date->format('Y-m-d'));
             $row = [
                 'date' => $record->target_date->format('Y-m-d'),
+                'moon_age' => $moon['moon_age'] ?? null,
                 'prize_vnd' => $record->prize_vnd,
                 'is_high_prize' => $record->prize_vnd >= $highPrizeThreshold,
                 'title' => $record->title,
@@ -323,6 +328,7 @@ PROMPT;
 あなたは壁紙の過去実績を分析するデータアナリストです。
 入力は当選金額の高い順で、全体の上位25%に相当する壁紙には is_high_prize=true が付いています。
 高額当選側とそれ以外を比較し、構図、画風、色彩、モチーフ、象徴の相関傾向と反例を分析してください。
+各レコードの当時の月齢（moon_age）を約29.5日周期の循環データとして比較し、高額当選との傾向と反例を分析してください。
 因果関係や当選確率の向上を断定せず、サンプル数が少ない場合はその限界を明記してください。
 analysis_markdown にはコードフェンスを使わない日本語Markdownを格納し、見出し、箇条書きを使用してください。
 PROMPT;
@@ -333,6 +339,7 @@ PROMPT;
         return <<<'PROMPT'
 複数の部分分析を統合し、重複を除いた一つの日本語Markdown文書にしてください。
 「# 高額当選壁紙の傾向分析」を先頭見出しとし、対象データ、高額当選側で見られる傾向、反例・注意点、構図提案への活用指針を含めてください。
+月齢に関する傾向と反例も欠落させずに統合してください。
 因果関係や当選確率の向上を断定せず、未知の構図を探索する余地も残してください。
 analysis_markdown にMarkdown本文だけを格納し、コードフェンスは使用しないでください。
 PROMPT;

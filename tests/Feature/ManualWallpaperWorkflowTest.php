@@ -52,6 +52,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertStringNotContainsString('利用可能なソース', $prompt['prompt']);
         $this->assertStringNotContainsString('ファイル名が上記ファイル名と完全に一致', $prompt['prompt']);
         $this->assertStringContainsString('検証内容を含めないでください', $prompt['prompt']);
+        $this->assertStringContainsString('当時の月齢（moon_age）を約29.5日周期の循環データとして比較', $prompt['prompt']);
         $this->assertStringNotContainsString('data_hash', $prompt['prompt']);
         $this->assertStringNotContainsString('データハッシュ', $prompt['prompt']);
         $this->assertStringNotContainsString('プロンプトへ埋め込まない壁紙', $prompt['prompt']);
@@ -129,6 +130,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertSame(2, $data['record_count']);
         $this->assertCount(2, $data['records']);
         $this->assertSame('高額側の壁紙', $data['records'][0]['title']);
+        $this->assertIsFloat($data['records'][0]['moon_age']);
         $this->assertTrue($data['records'][0]['is_high_prize']);
         $this->assertSame('低額側の壁紙', $data['records'][1]['title']);
     }
