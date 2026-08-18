@@ -180,7 +180,7 @@ PROMPT;
             ]);
         }
 
-        return Validator::make($payload, [
+        $validator = Validator::make($payload, [
             'title' => ['required', 'string', 'max:255'],
             'art_style' => ['required', 'string', 'max:255'],
             'conclusion' => ['required', 'string', 'max:65535'],
@@ -188,7 +188,18 @@ PROMPT;
             'composition' => ['required', 'string', 'max:500000'],
             'color_wu_xing' => ['required', 'string', 'max:500000'],
             'symbolism' => ['required', 'string', 'max:500000'],
-        ])->validate();
+        ], [
+            'required' => ':attributeは必須です。',
+            'string' => ':attributeは文字列で入力してください。',
+            'max' => ':attributeは:max文字以内で入力してください。',
+        ], array_combine(self::PROPOSAL_FIELDS, self::PROPOSAL_FIELDS));
+        if ($validator->fails()) {
+            throw ValidationException::withMessages([
+                'proposal_json' => implode(' ', $validator->errors()->all()),
+            ]);
+        }
+
+        return $validator->validated();
     }
 
     public function saveProposal(
@@ -243,6 +254,7 @@ historical_analysis_markdown の傾向、反例、注意点、活用指針を構
 過去実績を参照しつつ、未知の構図やモチーフも探索してください。
 暦情報は入力された値だけを使い、欠損値を推測で補ってはいけません。
 同日の却下案と実質的に同じ提案をしてはいけません。
+titleとart_styleはそれぞれ255文字以内にしてください。
 結論は「構図名 × 画風」の1行にしてください。
 PROMPT;
     }
