@@ -143,6 +143,15 @@ class WallpaperAnalysisTest extends TestCase
         (new GenerateHistoricalAnalysis($snapshot->id, $run->id))
             ->handle(app(HistoricalAnalysisService::class));
 
+        Http::assertSent(function (Request $request): bool {
+            $instructions = $request->data()['instructions'] ?? '';
+            $input = $request->data()['input'] ?? '';
+
+            return is_string($instructions)
+                && str_contains($instructions, '当時の月齢（moon_age）を約29.5日周期の循環データとして比較')
+                && is_string($input)
+                && str_contains($input, '"moon_age":');
+        });
         $snapshot->refresh();
         $run->refresh();
         $this->assertSame('succeeded', $snapshot->status);
