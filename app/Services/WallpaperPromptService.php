@@ -94,6 +94,7 @@ class WallpaperPromptService
 
 以下の入力データを使って構図を1案だけ提案してください。
 回答は次のJSON Schemaに一致するJSONオブジェクトだけにしてください。説明文やコードフェンスは付けないでください。
+回答と同じ内容をUTF-8のJSONファイル（wallpaper-composition-{$targetDate}.json）としてダウンロードできるようにしてください。
 
 JSON Schema:
 {$schema}
