@@ -195,8 +195,7 @@ MARKDOWN;
         $prompt = $this->chunkInstructions().<<<PROMPT
 
 
-このチャットに、次の分析データJSONを添付してから分析してください。
-ダウンロード時のファイル名: {$dataFilename}
+このチャットに添付したJSONのファイルを参照して分析してください。
 対象件数: {$recordCount}件
 
 添付されたJSONのファイル名は問いません。PythonでJSONファイル全体を読み込み、record_count、recordsの実件数、is_high_prize=true/falseの件数を最初に検証してください。
