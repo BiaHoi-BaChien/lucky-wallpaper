@@ -15,6 +15,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Inertia\Testing\AssertableInertia;
 use Tests\TestCase;
 
 class ManualWallpaperWorkflowTest extends TestCase
@@ -210,6 +211,7 @@ class ManualWallpaperWorkflowTest extends TestCase
             ->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-08-10')
             ->assertOk()
             ->json();
+        $this->assertStringContainsString('titleとart_styleはそれぞれ255文字以内', $prompt['prompt']);
         $this->assertStringContainsString('回答と同じ内容をUTF-8のJSONファイル', $prompt['prompt']);
         $this->assertStringContainsString('wallpaper-composition-2026-08-10.json', $prompt['prompt']);
         $json = "```json\n".json_encode($this->proposalPayload('手動の黄金庭園'), JSON_UNESCAPED_UNICODE)."\n```";
@@ -294,6 +296,36 @@ class ManualWallpaperWorkflowTest extends TestCase
                 'prompt_hash' => $prompt['prompt_hash'],
             ])
             ->assertSessionHasErrors('proposal_json');
+
+        $this->assertDatabaseCount('wallpapers', 0);
+        $this->assertDatabaseCount('composition_proposals', 0);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_manual_proposal_reports_overlong_art_style_on_the_create_page(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $this->createCurrentAnalysis();
+        $prompt = $this->actingAs($user)
+            ->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-08-14')
+            ->assertOk()
+            ->json();
+        $proposal = $this->proposalPayload('長すぎる画風の案');
+        $proposal['art_style'] = str_repeat('画', 256);
+
+        $this->actingAs($user)
+            ->from('/wallpapers/create?date=2026-08-14')
+            ->followingRedirects()
+            ->post('/wallpapers/proposals/manual-result', [
+                'target_date' => '2026-08-14',
+                'proposal_json' => json_encode($proposal, JSON_UNESCAPED_UNICODE),
+                'prompt_hash' => $prompt['prompt_hash'],
+            ])
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('wallpapers/create', false)
+                ->where('errors.proposal_json', 'art_styleは255文字以内で入力してください。'));
 
         $this->assertDatabaseCount('wallpapers', 0);
         $this->assertDatabaseCount('composition_proposals', 0);
