@@ -103,6 +103,14 @@ class WallpaperController extends Controller
             'downloadUnavailableReason' => $downloadRequiresNotionConfiguration
                 ? '画像はNotionバックアップに保管されています。ダウンロードするにはNOTION_TOKENの設定が必要です。'
                 : null,
+            'previousWallpaperId' => Wallpaper::query()
+                ->where('target_date', '<', $wallpaper->target_date->toDateString())
+                ->orderByDesc('target_date')
+                ->value('id'),
+            'nextWallpaperId' => Wallpaper::query()
+                ->where('target_date', '>', $wallpaper->target_date->toDateString())
+                ->orderBy('target_date')
+                ->value('id'),
             'latestApiRun' => ApiRun::query()
                 ->where('subject_type', $wallpaper->getMorphClass())
                 ->where('subject_id', $wallpaper->id)

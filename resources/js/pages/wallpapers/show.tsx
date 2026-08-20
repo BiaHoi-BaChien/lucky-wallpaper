@@ -19,8 +19,8 @@ import { Operation, useOperation } from '@/hooks/use-operation';
 import AppLayout from '@/layouts/app-layout';
 import { proposalStatusLabel, wallpaperStateLabel } from '@/lib/wallpaper-state';
 import { SharedData } from '@/types';
-import { Head, router, useForm, usePage } from '@inertiajs/react';
-import { ArchiveRestore, Download, LoaderCircle } from 'lucide-react';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
+import { ArchiveRestore, ChevronLeft, ChevronRight, Download, LoaderCircle } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 
 interface Proposal {
@@ -57,12 +57,16 @@ export default function ShowWallpaper({
     localImageAvailable,
     downloadAvailable,
     downloadUnavailableReason,
+    previousWallpaperId,
+    nextWallpaperId,
 }: {
     wallpaper: Wallpaper;
     latestApiRun: Operation | null;
     localImageAvailable: boolean;
     downloadAvailable: boolean;
     downloadUnavailableReason: string | null;
+    previousWallpaperId: number | null;
+    nextWallpaperId: number | null;
 }) {
     const { flash } = usePage<SharedData>().props;
     const { operation } = useOperation(latestApiRun);
@@ -165,6 +169,34 @@ export default function ShowWallpaper({
                     <h1 className="text-2xl font-bold">{wallpaper.target_date}</h1>
                     <p className="text-muted-foreground">状態: {wallpaperStateLabel(wallpaper.state)}</p>
                 </div>
+                <nav className="flex justify-between gap-3" aria-label="壁紙履歴の日付移動">
+                    <Button variant="outline" disabled={previousWallpaperId === null} asChild={previousWallpaperId !== null}>
+                        {previousWallpaperId === null ? (
+                            <span>
+                                <ChevronLeft aria-hidden="true" />
+                                前へ
+                            </span>
+                        ) : (
+                            <Link href={route('wallpapers.show', { wallpaper: previousWallpaperId })}>
+                                <ChevronLeft aria-hidden="true" />
+                                前へ
+                            </Link>
+                        )}
+                    </Button>
+                    <Button variant="outline" disabled={nextWallpaperId === null} asChild={nextWallpaperId !== null}>
+                        {nextWallpaperId === null ? (
+                            <span>
+                                次へ
+                                <ChevronRight aria-hidden="true" />
+                            </span>
+                        ) : (
+                            <Link href={route('wallpapers.show', { wallpaper: nextWallpaperId })}>
+                                次へ
+                                <ChevronRight aria-hidden="true" />
+                            </Link>
+                        )}
+                    </Button>
+                </nav>
                 {active && (
                     <div className="bg-muted flex items-center gap-2 rounded-lg p-4">
                         <LoaderCircle className="size-4 animate-spin" />

@@ -107,6 +107,20 @@ class WallpaperWorkflowTest extends TestCase
         $this->assertDatabaseHas('wallpapers', ['target_date' => '2026-08-02', 'state' => 'draft']);
     }
 
+    public function test_wallpaper_detail_receives_nearest_previous_and_next_dates(): void
+    {
+        $user = User::factory()->create();
+        $previous = Wallpaper::factory()->create(['target_date' => '2026-08-01']);
+        $current = Wallpaper::factory()->create(['target_date' => '2026-08-05']);
+        $next = Wallpaper::factory()->create(['target_date' => '2026-08-10']);
+
+        $this->actingAs($user)->get("/wallpapers/{$current->id}")
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('wallpapers/show', false)
+                ->where('previousWallpaperId', $previous->id)
+                ->where('nextWallpaperId', $next->id));
+    }
+
     public function test_vnd_must_be_non_negative_integer_and_zero_is_valid(): void
     {
         config(['lucky.notion.token' => 'test']);
