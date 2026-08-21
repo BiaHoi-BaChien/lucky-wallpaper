@@ -214,6 +214,7 @@ class ManualWallpaperWorkflowTest extends TestCase
             ->assertOk()
             ->json();
         $this->assertStringContainsString('titleとart_styleはそれぞれ255文字以内', $prompt['prompt']);
+        $this->assertStringContainsString('これらは月を構図やモチーフに含める指示ではありません。', $prompt['prompt']);
         $this->assertStringContainsString('回答と同じ内容をUTF-8のJSONファイル', $prompt['prompt']);
         $this->assertStringContainsString('wallpaper-composition-2026-08-10.json', $prompt['prompt']);
         $json = "```json\n".json_encode($this->proposalPayload('手動の黄金庭園'), JSON_UNESCAPED_UNICODE)."\n```";
