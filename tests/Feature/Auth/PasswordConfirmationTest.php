@@ -41,4 +41,40 @@ class PasswordConfirmationTest extends TestCase
 
         $response->assertSessionHasErrors();
     }
+
+    public function test_password_confirmation_is_rate_limited_after_five_failures()
+    {
+        $user = User::factory()->create();
+
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $this->actingAs($user)->post('/confirm-password', [
+                'password' => 'wrong-password',
+            ])->assertSessionHasErrors('password');
+        }
+
+        $this->actingAs($user)->post('/confirm-password', [
+            'password' => 'wrong-password',
+        ])->assertTooManyRequests();
+    }
+
+    public function test_successful_password_confirmation_clears_failed_attempts()
+    {
+        $user = User::factory()->create();
+
+        for ($attempt = 0; $attempt < 4; $attempt++) {
+            $this->actingAs($user)->post('/confirm-password', [
+                'password' => 'wrong-password',
+            ]);
+        }
+
+        $this->actingAs($user)->post('/confirm-password', [
+            'password' => 'password',
+        ])->assertRedirect();
+
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $this->actingAs($user)->post('/confirm-password', [
+                'password' => 'wrong-password',
+            ])->assertSessionHasErrors('password');
+        }
+    }
 }

@@ -106,4 +106,25 @@ class PasswordUpdateTest extends TestCase
         $this->assertDatabaseHas('users', ['id' => $user->id, 'remember_token' => null]);
         $this->assertAuthenticatedAs($user);
     }
+
+    public function test_password_update_is_rate_limited_after_five_failed_current_password_attempts()
+    {
+        $user = User::factory()->create();
+        $payload = [
+            'current_password' => 'wrong-password',
+            'password' => 'NewStrongPassword123',
+            'password_confirmation' => 'NewStrongPassword123',
+        ];
+
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $this->actingAs($user)
+                ->from('/settings/password')
+                ->put('/settings/password', $payload)
+                ->assertSessionHasErrors('current_password');
+        }
+
+        $this->actingAs($user)
+            ->put('/settings/password', $payload)
+            ->assertTooManyRequests();
+    }
 }

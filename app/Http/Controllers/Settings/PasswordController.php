@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\Settings;
 
 use App\Http\Controllers\Controller;
+use App\Support\PasswordReauthenticationLimiter;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -28,13 +30,24 @@ class PasswordController extends Controller
     /**
      * Update the user's password.
      */
-    public function update(Request $request): RedirectResponse
+    public function update(Request $request, PasswordReauthenticationLimiter $limiter): RedirectResponse
     {
-        $validated = $request->validate([
-            'current_password' => ['required', 'current_password'],
-            'password' => ['required', 'confirmed', Password::min(12)->letters()->mixedCase()->numbers()],
-        ]);
+        $limiter->ensureNotRateLimited($request);
 
+        try {
+            $validated = $request->validate([
+                'current_password' => ['required', 'current_password'],
+                'password' => ['required', 'confirmed', Password::min(12)->letters()->mixedCase()->numbers()],
+            ]);
+        } catch (ValidationException $exception) {
+            if (isset($exception->errors()['current_password'])) {
+                $limiter->hit($request);
+            }
+
+            throw $exception;
+        }
+
+        $limiter->clear($request);
         $user = $request->user();
         $user->forceFill([
             'password' => Hash::make($validated['password']),
