@@ -46,10 +46,14 @@ class ResultController extends Controller
     ): RedirectResponse {
         $validated = $request->validate([
             'prize_vnd' => ['required', 'integer', 'min:0', 'digits_between:1,15'],
+            'purchase_count' => ['nullable', 'integer', 'min:1', 'max:4294967295'],
         ]);
 
-        $wallpaper->update(['prize_vnd' => (int) $validated['prize_vnd']]);
-        if ($wallpaper->wasChanged('prize_vnd')) {
+        $wallpaper->update([
+            'prize_vnd' => (int) $validated['prize_vnd'],
+            'purchase_count' => isset($validated['purchase_count']) ? (int) $validated['purchase_count'] : null,
+        ]);
+        if ($wallpaper->wasChanged(['prize_vnd', 'purchase_count'])) {
             AnalysisSnapshot::query()->where('status', 'succeeded')->update(['status' => 'invalidated']);
         }
         if (! $notion->isConfigured()) {

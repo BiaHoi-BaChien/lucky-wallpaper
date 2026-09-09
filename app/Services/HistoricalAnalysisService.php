@@ -61,7 +61,7 @@ MARKDOWN;
             ->whereNotNull('title')
             ->whereNotNull('composition')
             ->orderBy('target_date')
-            ->get(['target_date', 'prize_vnd', 'title', 'art_style', 'overview', 'composition', 'color_wu_xing', 'symbolism']);
+            ->get(['target_date', 'prize_vnd', 'purchase_count', 'title', 'art_style', 'overview', 'composition', 'color_wu_xing', 'symbolism']);
     }
 
     public function analyze(AnalysisSnapshot $snapshot): AnalysisSnapshot
@@ -131,6 +131,7 @@ MARKDOWN;
         $canonical = $records->map(fn (Wallpaper $wallpaper): array => [
             'target_date' => $wallpaper->target_date->format('Y-m-d'),
             'prize_vnd' => $wallpaper->prize_vnd,
+            'purchase_count' => $wallpaper->purchase_count,
             'title' => $wallpaper->title,
             'art_style' => $wallpaper->art_style,
             'overview' => $wallpaper->overview,
@@ -147,17 +148,24 @@ MARKDOWN;
         $maxRecords = (int) config('lucky.analysis.records_per_chunk');
         $maxCharacters = (int) config('lucky.analysis.characters_per_chunk');
         $highPrizeThreshold = $this->highPrizeThreshold($records);
+        $highPrizePerTicketThreshold = $this->highPrizePerTicketThreshold($records);
         $chunks = [];
         $current = [];
         $characters = 0;
 
         foreach ($records->sortByDesc('prize_vnd') as $record) {
             $moon = $this->calendar->moonForDate($record->target_date->format('Y-m-d'));
+            $prizePerTicket = $this->prizePerTicket($record);
             $row = [
                 'date' => $record->target_date->format('Y-m-d'),
                 'moon_age' => $moon['moon_age'] ?? null,
                 'prize_vnd' => $record->prize_vnd,
                 'is_high_prize' => $record->prize_vnd >= $highPrizeThreshold,
+                'purchase_count' => $record->purchase_count,
+                'prize_per_ticket_vnd' => $prizePerTicket,
+                'is_high_prize_per_ticket' => $prizePerTicket === null || $highPrizePerTicketThreshold === null
+                    ? null
+                    : $prizePerTicket >= $highPrizePerTicketThreshold,
                 'title' => $record->title,
                 'art_style' => $record->art_style,
                 'overview' => $record->overview,
@@ -229,11 +237,13 @@ PROMPT;
         $records = $this->records();
         $rows = collect($this->chunks($records))->flatten(1)->values()->all();
         $payload = [
-            'schema_version' => '1',
+            'schema_version' => '2',
             'generated_at' => now()->timezone((string) config('lucky.timezone'))->toIso8601String(),
             'timezone' => (string) config('lucky.timezone'),
             'record_count' => $records->count(),
             'high_prize_threshold_vnd' => $this->highPrizeThreshold($records),
+            'prize_per_ticket_record_count' => $records->where('purchase_count', '>', 0)->count(),
+            'high_prize_per_ticket_threshold_vnd' => $this->highPrizePerTicketThreshold($records),
             'records' => $rows,
         ];
 
@@ -302,6 +312,28 @@ PROMPT;
         return (int) $prizes->get($index);
     }
 
+    private function prizePerTicket(Wallpaper $wallpaper): ?float
+    {
+        return $wallpaper->purchase_count === null || $wallpaper->purchase_count < 1
+            ? null
+            : round($wallpaper->prize_vnd / $wallpaper->purchase_count, 2);
+    }
+
+    private function highPrizePerTicketThreshold(Collection $records): ?float
+    {
+        $prizes = $records->map(fn (Wallpaper $wallpaper): ?float => $this->prizePerTicket($wallpaper))
+            ->filter(fn (?float $prize): bool => $prize !== null)
+            ->sort()
+            ->values();
+        if ($prizes->isEmpty()) {
+            return null;
+        }
+
+        $index = (int) floor(($prizes->count() - 1) * 0.75);
+
+        return (float) $prizes->get($index);
+    }
+
     private function normalizeMarkdown(string $markdown): string
     {
         $markdown = trim($markdown);
@@ -319,6 +351,8 @@ PROMPT;
             'chunks' => $chunks,
             'max_prize_vnd' => $records->max('prize_vnd'),
             'high_prize_threshold_vnd' => $this->highPrizeThreshold($records),
+            'prize_per_ticket_record_count' => $records->where('purchase_count', '>', 0)->count(),
+            'high_prize_per_ticket_threshold_vnd' => $this->highPrizePerTicketThreshold($records),
         ];
     }
 
@@ -328,6 +362,8 @@ PROMPT;
 あなたは壁紙の過去実績を分析するデータアナリストです。
 入力は当選金額の高い順で、全体の上位25%に相当する壁紙には is_high_prize=true が付いています。
 高額当選側とそれ以外を比較し、構図、画風、色彩、モチーフ、象徴の相関傾向と反例を分析してください。
+購入口数が登録されたレコードでは、1口あたり当選額（prize_per_ticket_vnd）の上位25%に is_high_prize_per_ticket=true が付いています。
+絶対当選額と1口あたり当選額の両方で傾向と反例を比較し、1口あたり分析では購入口数不明のレコードを除外して対象件数を明記してください。
 各レコードの当時の月齢（moon_age）を約29.5日周期の循環データとして比較し、高額当選との傾向と反例を分析してください。
 因果関係や当選確率の向上を断定せず、サンプル数が少ない場合はその限界を明記してください。
 analysis_markdown にはコードフェンスを使わない日本語Markdownを格納し、見出し、箇条書きを使用してください。
@@ -339,6 +375,7 @@ PROMPT;
         return <<<'PROMPT'
 複数の部分分析を統合し、重複を除いた一つの日本語Markdown文書にしてください。
 「# 高額当選壁紙の傾向分析」を先頭見出しとし、対象データ、高額当選側で見られる傾向、反例・注意点、構図提案への活用指針を含めてください。
+絶対当選額と1口あたり当選額の傾向、反例、各対象件数を欠落させずに統合してください。
 月齢に関する傾向と反例も欠落させずに統合してください。
 因果関係や当選確率の向上を断定せず、未知の構図を探索する余地も残してください。
 analysis_markdown にMarkdown本文だけを格納し、コードフェンスは使用しないでください。

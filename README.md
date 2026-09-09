@@ -75,7 +75,7 @@ php artisan serve
 - `POST /wallpapers/{id}/image`: 承認案からOpenAIで画像生成（明示確認必須）
 - `POST /wallpapers/{id}/restore-image`: Notionバックアップの画像をサーバーへ復元
 - `GET /wallpapers/{id}/preview`: 認証済み画像プレビュー
-- `PUT /wallpapers/{id}/result`: VND賞金を保存し、設定済みの場合はNotionへバックアップ
+- `PUT /wallpapers/{id}/result`: VND賞金と任意の購入口数を保存。Notionバックアップ対象は賞金と画像のみ
 - `GET /operations/{id}`: 非同期処理の進捗
 - `GET /wallpapers/{id}/download`: 認証済み画像ダウンロード
 

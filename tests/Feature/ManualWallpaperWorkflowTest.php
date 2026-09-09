@@ -53,6 +53,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertStringNotContainsString('ファイル名が上記ファイル名と完全に一致', $prompt['prompt']);
         $this->assertStringContainsString('検証内容を含めないでください', $prompt['prompt']);
         $this->assertStringContainsString('当時の月齢（moon_age）を約29.5日周期の循環データとして比較', $prompt['prompt']);
+        $this->assertStringContainsString('1口あたり当選額（prize_per_ticket_vnd）', $prompt['prompt']);
         $this->assertStringNotContainsString('data_hash', $prompt['prompt']);
         $this->assertStringNotContainsString('データハッシュ', $prompt['prompt']);
         $this->assertStringNotContainsString('プロンプトへ埋め込まない壁紙', $prompt['prompt']);
@@ -107,13 +108,33 @@ class ManualWallpaperWorkflowTest extends TestCase
         $user = User::factory()->create();
         Wallpaper::factory()->create([
             'target_date' => '2026-08-01',
-            'prize_vnd' => 1_000_000,
-            'title' => '低額側の壁紙',
+            'prize_vnd' => 4_000_000,
+            'purchase_count' => 100,
+            'title' => '絶対額1位',
         ]);
         Wallpaper::factory()->create([
             'target_date' => '2026-08-02',
-            'prize_vnd' => 5_000_000,
-            'title' => '高額側の壁紙',
+            'prize_vnd' => 3_000_000,
+            'purchase_count' => 100,
+            'title' => '絶対額2位',
+        ]);
+        Wallpaper::factory()->create([
+            'target_date' => '2026-08-03',
+            'prize_vnd' => 2_000_000,
+            'purchase_count' => 1,
+            'title' => '1口あたり1位',
+        ]);
+        Wallpaper::factory()->create([
+            'target_date' => '2026-08-04',
+            'prize_vnd' => 1_000_000,
+            'purchase_count' => 1,
+            'title' => '1口あたり2位',
+        ]);
+        Wallpaper::factory()->create([
+            'target_date' => '2026-08-05',
+            'prize_vnd' => 500_000,
+            'purchase_count' => null,
+            'title' => '口数不明',
         ]);
         $prompt = $this->actingAs($user)->getJson('/wallpaper-analyses/manual-prompt')->json();
 
@@ -124,15 +145,22 @@ class ManualWallpaperWorkflowTest extends TestCase
             ->assertHeader('X-Content-Type-Options', 'nosniff');
 
         $data = json_decode($response->getContent(), true, flags: JSON_THROW_ON_ERROR);
-        $this->assertSame('1', $data['schema_version']);
+        $this->assertSame('2', $data['schema_version']);
         $this->assertSame(config('lucky.timezone'), $data['timezone']);
         $this->assertArrayNotHasKey('data_hash', $data);
-        $this->assertSame(2, $data['record_count']);
-        $this->assertCount(2, $data['records']);
-        $this->assertSame('高額側の壁紙', $data['records'][0]['title']);
+        $this->assertSame(5, $data['record_count']);
+        $this->assertSame(4, $data['prize_per_ticket_record_count']);
+        $this->assertSame(1_000_000, $data['high_prize_per_ticket_threshold_vnd']);
+        $this->assertCount(5, $data['records']);
+        $this->assertSame('絶対額1位', $data['records'][0]['title']);
         $this->assertIsFloat($data['records'][0]['moon_age']);
         $this->assertTrue($data['records'][0]['is_high_prize']);
-        $this->assertSame('低額側の壁紙', $data['records'][1]['title']);
+        $this->assertFalse($data['records'][0]['is_high_prize_per_ticket']);
+        $this->assertFalse($data['records'][2]['is_high_prize']);
+        $this->assertTrue($data['records'][2]['is_high_prize_per_ticket']);
+        $this->assertNull($data['records'][4]['purchase_count']);
+        $this->assertNull($data['records'][4]['prize_per_ticket_vnd']);
+        $this->assertNull($data['records'][4]['is_high_prize_per_ticket']);
     }
 
     public function test_manual_analysis_keeps_prompt_date_after_midnight(): void

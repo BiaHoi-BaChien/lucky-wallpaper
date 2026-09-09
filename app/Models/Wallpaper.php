@@ -19,6 +19,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $color_wu_xing
  * @property string|null $symbolism
  * @property int|null $prize_vnd
+ * @property int|null $purchase_count
  * @property string|null $notion_page_id
  * @property int|null $chosen_proposal_id
  * @property string|null $image_disk
@@ -41,6 +42,7 @@ class Wallpaper extends Model
         return [
             'target_date' => 'date:Y-m-d',
             'prize_vnd' => 'integer',
+            'purchase_count' => 'integer',
             'image_bytes' => 'integer',
             'warnings' => 'array',
             'result_synced_at' => 'datetime',
