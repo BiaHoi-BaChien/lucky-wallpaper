@@ -139,6 +139,37 @@ class WallpaperWorkflowTest extends TestCase
         Queue::assertPushed(SyncWallpaperResultToNotion::class, 1);
     }
 
+    public function test_purchase_count_is_optional_positive_integer_and_invalidates_analysis(): void
+    {
+        config(['lucky.notion.token' => 'test']);
+        Queue::fake();
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create(['prize_vnd' => 1_000]);
+        $snapshot = $this->createCurrentAnalysis();
+
+        foreach (['0', '-1', '1.5'] as $purchaseCount) {
+            $this->actingAs($user)->put("/wallpapers/{$wallpaper->id}/result", [
+                'prize_vnd' => '1000',
+                'purchase_count' => $purchaseCount,
+            ])->assertSessionHasErrors('purchase_count');
+        }
+
+        $this->actingAs($user)->put("/wallpapers/{$wallpaper->id}/result", [
+            'prize_vnd' => '1000',
+            'purchase_count' => '',
+        ])->assertSessionHasNoErrors();
+        $this->assertNull($wallpaper->refresh()->purchase_count);
+
+        $this->actingAs($user)->put("/wallpapers/{$wallpaper->id}/result", [
+            'prize_vnd' => '1000',
+            'purchase_count' => '2',
+        ])->assertSessionHasNoErrors();
+
+        $this->assertSame(2, $wallpaper->refresh()->purchase_count);
+        $this->assertSame('invalidated', $snapshot->refresh()->status);
+        $this->assertNotSame($snapshot->data_hash, app(HistoricalAnalysisService::class)->currentDataHash());
+    }
+
     public function test_result_is_saved_without_queuing_backup_when_notion_is_not_configured(): void
     {
         config(['lucky.notion.token' => null]);

@@ -18,6 +18,7 @@ interface Wallpaper {
     art_style: string | null;
     composition: string | null;
     prize_vnd: number | null;
+    purchase_count: number | null;
     state: string;
     image_path: string | null;
     notion_page_id: string | null;
@@ -37,7 +38,10 @@ export default function Results({
     latestRun: Operation | null;
 }) {
     const search = useForm({ date: selectedDate || defaultDate });
-    const result = useForm({ prize_vnd: wallpaper?.prize_vnd?.toString() ?? '' });
+    const result = useForm({
+        prize_vnd: wallpaper?.prize_vnd?.toString() ?? '',
+        purchase_count: wallpaper?.purchase_count?.toString() ?? '',
+    });
     const { operation: resultOperation } = useOperation(latestRun);
     const { integrations, flash } = usePage<SharedData>().props;
     const notionConfigured = integrations.notion.configured;
@@ -101,7 +105,7 @@ export default function Results({
                             <p className="text-sm whitespace-pre-wrap">{wallpaper.composition}</p>
                             <p className="text-muted-foreground text-sm">
                                 {notionConfigured
-                                    ? '実績をサーバーに保存し、Notionにもバックアップします。'
+                                    ? '当選金額と画像をNotionにもバックアップします。購入口数はサーバーにのみ保存します。'
                                     : '実績はサーバーに保存します。NotionバックアップはNOTION_TOKEN未設定のため実行されません。'}
                             </p>
                             <form onSubmit={save} className="space-y-3">
@@ -117,6 +121,17 @@ export default function Results({
                                     required
                                 />
                                 <InputError message={result.errors.prize_vnd} />
+                                <Label htmlFor="purchase_count">購入口数（任意、1以上の整数）</Label>
+                                <Input
+                                    id="purchase_count"
+                                    type="number"
+                                    min="1"
+                                    max="4294967295"
+                                    step="1"
+                                    value={result.data.purchase_count}
+                                    onChange={(e) => result.setData('purchase_count', e.target.value)}
+                                />
+                                <InputError message={result.errors.purchase_count} />
                                 <Button disabled={result.processing || ['queued', 'running'].includes(resultOperation?.status ?? '')}>
                                     {notionConfigured ? '保存してバックアップ' : 'サーバーに保存'}
                                 </Button>

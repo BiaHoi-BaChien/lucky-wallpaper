@@ -117,7 +117,7 @@ class WallpaperAnalysisTest extends TestCase
     public function test_analysis_job_stores_markdown_result_and_statistics(): void
     {
         config(['lucky.openai.api_key' => 'test']);
-        Wallpaper::factory()->create(['prize_vnd' => 3_000_000]);
+        Wallpaper::factory()->create(['prize_vnd' => 3_000_000, 'purchase_count' => 3]);
         $snapshot = AnalysisSnapshot::query()->create([
             'data_hash' => app(HistoricalAnalysisService::class)->currentDataHash(),
             'prompt_version' => config('lucky.openai.prompt_version'),
@@ -149,8 +149,11 @@ class WallpaperAnalysisTest extends TestCase
 
             return is_string($instructions)
                 && str_contains($instructions, '当時の月齢（moon_age）を約29.5日周期の循環データとして比較')
+                && str_contains($instructions, '1口あたり当選額（prize_per_ticket_vnd）')
                 && is_string($input)
-                && str_contains($input, '"moon_age":');
+                && str_contains($input, '"moon_age":')
+                && str_contains($input, '"purchase_count":3')
+                && str_contains($input, '"prize_per_ticket_vnd":1000000');
         });
         $snapshot->refresh();
         $run->refresh();
@@ -158,6 +161,8 @@ class WallpaperAnalysisTest extends TestCase
         $this->assertStringStartsWith('# 高額当選壁紙の傾向分析', $snapshot->summary);
         $this->assertSame(1, $snapshot->statistics['records']);
         $this->assertSame(3_000_000, $snapshot->statistics['high_prize_threshold_vnd']);
+        $this->assertSame(1, $snapshot->statistics['prize_per_ticket_record_count']);
+        $this->assertSame(1_000_000, $snapshot->statistics['high_prize_per_ticket_threshold_vnd']);
         $this->assertSame('succeeded', $run->status);
     }
 
