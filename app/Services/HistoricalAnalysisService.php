@@ -10,6 +10,8 @@ use Illuminate\Support\Collection;
 
 class HistoricalAnalysisService
 {
+    private const DATA_SCHEMA_VERSION = '3';
+
     private const EMPTY_SUMMARY = <<<'MARKDOWN'
 # 高額当選壁紙の傾向分析
 
@@ -26,10 +28,7 @@ class HistoricalAnalysisService
 この分析は過去実績との相関を扱うもので、当選や当選確率の向上を保証するものではありません。
 MARKDOWN;
 
-    public function __construct(
-        private readonly OpenAiClient $openAi,
-        private readonly CalendarContextService $calendar,
-    ) {}
+    public function __construct(private readonly OpenAiClient $openAi) {}
 
     public function currentDataHash(): string
     {
@@ -140,7 +139,7 @@ MARKDOWN;
             'symbolism' => $wallpaper->symbolism,
         ])->all();
 
-        return hash('sha256', json_encode($canonical, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+        return hash('sha256', self::DATA_SCHEMA_VERSION.'|'.json_encode($canonical, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
     }
 
     public function chunks(Collection $records): array
@@ -154,11 +153,9 @@ MARKDOWN;
         $characters = 0;
 
         foreach ($records->sortByDesc('prize_vnd') as $record) {
-            $moon = $this->calendar->moonForDate($record->target_date->format('Y-m-d'));
             $prizePerTicket = $this->prizePerTicket($record);
             $row = [
                 'date' => $record->target_date->format('Y-m-d'),
-                'moon_age' => $moon['moon_age'] ?? null,
                 'prize_vnd' => $record->prize_vnd,
                 'is_high_prize' => $record->prize_vnd >= $highPrizeThreshold,
                 'purchase_count' => $record->purchase_count,
@@ -237,7 +234,7 @@ PROMPT;
         $records = $this->records();
         $rows = collect($this->chunks($records))->flatten(1)->values()->all();
         $payload = [
-            'schema_version' => '2',
+            'schema_version' => self::DATA_SCHEMA_VERSION,
             'generated_at' => now()->timezone((string) config('lucky.timezone'))->toIso8601String(),
             'timezone' => (string) config('lucky.timezone'),
             'record_count' => $records->count(),
@@ -364,7 +361,6 @@ PROMPT;
 高額当選側とそれ以外を比較し、構図、画風、色彩、モチーフ、象徴の相関傾向と反例を分析してください。
 購入口数が登録されたレコードでは、1口あたり当選額（prize_per_ticket_vnd）の上位25%に is_high_prize_per_ticket=true が付いています。
 絶対当選額と1口あたり当選額の両方で傾向と反例を比較し、1口あたり分析では購入口数不明のレコードを除外して対象件数を明記してください。
-各レコードの当時の月齢（moon_age）を約29.5日周期の循環データとして比較し、高額当選との傾向と反例を分析してください。
 因果関係や当選確率の向上を断定せず、サンプル数が少ない場合はその限界を明記してください。
 analysis_markdown にはコードフェンスを使わない日本語Markdownを格納し、見出し、箇条書きを使用してください。
 PROMPT;
@@ -376,7 +372,6 @@ PROMPT;
 複数の部分分析を統合し、重複を除いた一つの日本語Markdown文書にしてください。
 「# 高額当選壁紙の傾向分析」を先頭見出しとし、対象データ、高額当選側で見られる傾向、反例・注意点、構図提案への活用指針を含めてください。
 絶対当選額と1口あたり当選額の傾向、反例、各対象件数を欠落させずに統合してください。
-月齢に関する傾向と反例も欠落させずに統合してください。
 因果関係や当選確率の向上を断定せず、未知の構図を探索する余地も残してください。
 analysis_markdown にMarkdown本文だけを格納し、コードフェンスは使用しないでください。
 PROMPT;

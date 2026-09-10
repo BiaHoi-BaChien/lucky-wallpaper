@@ -22,6 +22,14 @@ class WallpaperAnalysisTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_analysis_data_schema_version_is_part_of_freshness_hash(): void
+    {
+        $hash = app(HistoricalAnalysisService::class)->currentDataHash();
+
+        $this->assertSame(hash('sha256', '3|[]'), $hash);
+        $this->assertNotSame(hash('sha256', '[]'), $hash);
+    }
+
     public function test_analysis_click_queues_job_and_creates_snapshot(): void
     {
         Queue::fake();
@@ -148,10 +156,10 @@ class WallpaperAnalysisTest extends TestCase
             $input = $request->data()['input'] ?? '';
 
             return is_string($instructions)
-                && str_contains($instructions, '当時の月齢（moon_age）を約29.5日周期の循環データとして比較')
+                && ! str_contains($instructions, 'moon_age')
                 && str_contains($instructions, '1口あたり当選額（prize_per_ticket_vnd）')
                 && is_string($input)
-                && str_contains($input, '"moon_age":')
+                && ! str_contains($input, '"moon_age":')
                 && str_contains($input, '"purchase_count":3')
                 && str_contains($input, '"prize_per_ticket_vnd":1000000');
         });
