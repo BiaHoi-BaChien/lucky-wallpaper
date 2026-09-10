@@ -159,6 +159,7 @@ jobs:
              cd '$DEPLOY_PATH'
              php artisan package:discover --ansi
              php artisan optimize:clear
+             php artisan migrate --force
              php artisan config:cache
              # Route caching breaks the root route when this app is mounted below the domain root.
              php artisan view:cache
