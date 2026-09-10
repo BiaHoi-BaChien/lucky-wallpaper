@@ -8,6 +8,18 @@ use Throwable;
 
 class CalendarContextService
 {
+    public const NINE_STARS = [
+        '一白水天枢',
+        '二黒土天璇',
+        '三碧木天玑',
+        '四绿木天权',
+        '五黄土玉衡',
+        '六白金开阳',
+        '七赤金摇光',
+        '八白土洞明',
+        '九紫火隐元',
+    ];
+
     public function forDate(string $targetDate): array
     {
         $date = CarbonImmutable::parse($targetDate, config('lucky.timezone'))->setTime(12, 0);

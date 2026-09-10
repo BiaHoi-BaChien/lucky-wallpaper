@@ -16,6 +16,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $conclusion
  * @property string|null $overview
  * @property string|null $composition
+ * @property string|null $composition_zone
  * @property string|null $color_wu_xing
  * @property string|null $symbolism
  * @property int|null $prize_vnd
@@ -34,6 +35,30 @@ class Wallpaper extends Model
 {
     /** @use HasFactory<WallpaperFactory> */
     use HasFactory;
+
+    public const COMPOSITION_ZONE_LABELS = [
+        'top_left' => '左上',
+        'top' => '上部',
+        'top_right' => '右上',
+        'left' => '左',
+        'center' => '中央',
+        'right' => '右',
+        'bottom_left' => '左下',
+        'bottom' => '下部',
+        'bottom_right' => '右下',
+    ];
+
+    public const COMPOSITION_ZONES = [
+        'top_left',
+        'top',
+        'top_right',
+        'left',
+        'center',
+        'right',
+        'bottom_left',
+        'bottom',
+        'bottom_right',
+    ];
 
     protected $guarded = [];
 

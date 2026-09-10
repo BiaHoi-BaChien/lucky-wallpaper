@@ -170,6 +170,32 @@ class WallpaperWorkflowTest extends TestCase
         $this->assertNotSame($snapshot->data_hash, app(HistoricalAnalysisService::class)->currentDataHash());
     }
 
+    public function test_composition_zone_can_be_changed_or_cleared_and_invalidates_analysis(): void
+    {
+        config(['lucky.notion.token' => null]);
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create(['prize_vnd' => 1_000]);
+        $snapshot = $this->createCurrentAnalysis();
+
+        $this->actingAs($user)->put("/wallpapers/{$wallpaper->id}/result", [
+            'prize_vnd' => '1000',
+            'composition_zone' => 'outside',
+        ])->assertSessionHasErrors('composition_zone');
+
+        $this->actingAs($user)->put("/wallpapers/{$wallpaper->id}/result", [
+            'prize_vnd' => '1000',
+            'composition_zone' => 'top_left',
+        ])->assertSessionHasNoErrors();
+        $this->assertSame('top_left', $wallpaper->refresh()->composition_zone);
+        $this->assertSame('invalidated', $snapshot->refresh()->status);
+
+        $this->actingAs($user)->put("/wallpapers/{$wallpaper->id}/result", [
+            'prize_vnd' => '1000',
+            'composition_zone' => '',
+        ])->assertSessionHasNoErrors();
+        $this->assertNull($wallpaper->refresh()->composition_zone);
+    }
+
     public function test_result_is_saved_without_queuing_backup_when_notion_is_not_configured(): void
     {
         config(['lucky.notion.token' => null]);

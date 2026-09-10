@@ -11,6 +11,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -47,13 +48,18 @@ class ResultController extends Controller
         $validated = $request->validate([
             'prize_vnd' => ['required', 'integer', 'min:0', 'digits_between:1,15'],
             'purchase_count' => ['nullable', 'integer', 'min:1', 'max:4294967295'],
+            'composition_zone' => ['nullable', 'string', Rule::in(Wallpaper::COMPOSITION_ZONES)],
         ]);
 
-        $wallpaper->update([
+        $updates = [
             'prize_vnd' => (int) $validated['prize_vnd'],
             'purchase_count' => isset($validated['purchase_count']) ? (int) $validated['purchase_count'] : null,
-        ]);
-        if ($wallpaper->wasChanged(['prize_vnd', 'purchase_count'])) {
+        ];
+        if ($request->has('composition_zone')) {
+            $updates['composition_zone'] = $validated['composition_zone'] ?? null;
+        }
+        $wallpaper->update($updates);
+        if ($wallpaper->wasChanged(['prize_vnd', 'purchase_count', 'composition_zone'])) {
             AnalysisSnapshot::query()->where('status', 'succeeded')->update(['status' => 'invalidated']);
         }
         if (! $notion->isConfigured()) {

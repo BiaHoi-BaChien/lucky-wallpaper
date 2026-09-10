@@ -10,7 +10,7 @@ use Illuminate\Support\Collection;
 
 class HistoricalAnalysisService
 {
-    private const DATA_SCHEMA_VERSION = '3';
+    private const DATA_SCHEMA_VERSION = '4';
 
     private const EMPTY_SUMMARY = <<<'MARKDOWN'
 # 高額当選壁紙の傾向分析
@@ -28,7 +28,10 @@ class HistoricalAnalysisService
 この分析は過去実績との相関を扱うもので、当選や当選確率の向上を保証するものではありません。
 MARKDOWN;
 
-    public function __construct(private readonly OpenAiClient $openAi) {}
+    public function __construct(
+        private readonly OpenAiClient $openAi,
+        private readonly CalendarContextService $calendarService,
+    ) {}
 
     public function currentDataHash(): string
     {
@@ -60,7 +63,7 @@ MARKDOWN;
             ->whereNotNull('title')
             ->whereNotNull('composition')
             ->orderBy('target_date')
-            ->get(['target_date', 'prize_vnd', 'purchase_count', 'title', 'art_style', 'overview', 'composition', 'color_wu_xing', 'symbolism']);
+            ->get(['target_date', 'prize_vnd', 'purchase_count', 'title', 'art_style', 'overview', 'composition', 'composition_zone', 'color_wu_xing', 'symbolism']);
     }
 
     public function analyze(AnalysisSnapshot $snapshot): AnalysisSnapshot
@@ -135,6 +138,7 @@ MARKDOWN;
             'art_style' => $wallpaper->art_style,
             'overview' => $wallpaper->overview,
             'composition' => $wallpaper->composition,
+            'composition_zone' => $wallpaper->composition_zone,
             'color_wu_xing' => $wallpaper->color_wu_xing,
             'symbolism' => $wallpaper->symbolism,
         ])->all();
@@ -154,8 +158,10 @@ MARKDOWN;
 
         foreach ($records->sortByDesc('prize_vnd') as $record) {
             $prizePerTicket = $this->prizePerTicket($record);
+            $calendar = $this->calendarService->forDate($record->target_date->format('Y-m-d'));
             $row = [
                 'date' => $record->target_date->format('Y-m-d'),
+                'nine_star' => $calendar['nine_star'] ?? null,
                 'prize_vnd' => $record->prize_vnd,
                 'is_high_prize' => $record->prize_vnd >= $highPrizeThreshold,
                 'purchase_count' => $record->purchase_count,
@@ -167,6 +173,7 @@ MARKDOWN;
                 'art_style' => $record->art_style,
                 'overview' => $record->overview,
                 'composition' => $record->composition,
+                'composition_zone' => $record->composition_zone,
                 'color_wu_xing' => $record->color_wu_xing,
                 'symbolism' => $record->symbolism,
             ];
@@ -240,6 +247,7 @@ PROMPT;
             'record_count' => $records->count(),
             'high_prize_threshold_vnd' => $this->highPrizeThreshold($records),
             'prize_per_ticket_record_count' => $records->where('purchase_count', '>', 0)->count(),
+            'nine_palace_record_count' => $records->whereNotNull('composition_zone')->count(),
             'high_prize_per_ticket_threshold_vnd' => $this->highPrizePerTicketThreshold($records),
             'records' => $rows,
         ];
@@ -349,6 +357,7 @@ PROMPT;
             'max_prize_vnd' => $records->max('prize_vnd'),
             'high_prize_threshold_vnd' => $this->highPrizeThreshold($records),
             'prize_per_ticket_record_count' => $records->where('purchase_count', '>', 0)->count(),
+            'nine_palace_record_count' => $records->whereNotNull('composition_zone')->count(),
             'high_prize_per_ticket_threshold_vnd' => $this->highPrizePerTicketThreshold($records),
         ];
     }
@@ -359,6 +368,7 @@ PROMPT;
 あなたは壁紙の過去実績を分析するデータアナリストです。
 入力は当選金額の高い順で、全体の上位25%に相当する壁紙には is_high_prize=true が付いています。
 高額当選側とそれ以外を比較し、構図、画風、色彩、モチーフ、象徴の相関傾向と反例を分析してください。
+九星（nine_star）と九宮構図（composition_zone）の関係は、composition_zoneがnullではないレコードだけで比較し、対象件数を明記してください。
 購入口数が登録されたレコードでは、1口あたり当選額（prize_per_ticket_vnd）の上位25%に is_high_prize_per_ticket=true が付いています。
 絶対当選額と1口あたり当選額の両方で傾向と反例を比較し、1口あたり分析では購入口数不明のレコードを除外して対象件数を明記してください。
 因果関係や当選確率の向上を断定せず、サンプル数が少ない場合はその限界を明記してください。
@@ -371,6 +381,7 @@ PROMPT;
         return <<<'PROMPT'
 複数の部分分析を統合し、重複を除いた一つの日本語Markdown文書にしてください。
 「# 高額当選壁紙の傾向分析」を先頭見出しとし、対象データ、高額当選側で見られる傾向、反例・注意点、構図提案への活用指針を含めてください。
+九星と九宮構図の関係は、九宮構図が分類済みの対象件数とともに統合してください。
 絶対当選額と1口あたり当選額の傾向、反例、各対象件数を欠落させずに統合してください。
 因果関係や当選確率の向上を断定せず、未知の構図を探索する余地も残してください。
 analysis_markdown にMarkdown本文だけを格納し、コードフェンスは使用しないでください。

@@ -26,7 +26,7 @@ class WallpaperAnalysisTest extends TestCase
     {
         $hash = app(HistoricalAnalysisService::class)->currentDataHash();
 
-        $this->assertSame(hash('sha256', '3|[]'), $hash);
+        $this->assertSame(hash('sha256', '4|[]'), $hash);
         $this->assertNotSame(hash('sha256', '[]'), $hash);
     }
 
@@ -125,7 +125,12 @@ class WallpaperAnalysisTest extends TestCase
     public function test_analysis_job_stores_markdown_result_and_statistics(): void
     {
         config(['lucky.openai.api_key' => 'test']);
-        Wallpaper::factory()->create(['prize_vnd' => 3_000_000, 'purchase_count' => 3]);
+        Wallpaper::factory()->create([
+            'target_date' => '2026-07-26',
+            'prize_vnd' => 3_000_000,
+            'purchase_count' => 3,
+            'composition_zone' => 'center',
+        ]);
         $snapshot = AnalysisSnapshot::query()->create([
             'data_hash' => app(HistoricalAnalysisService::class)->currentDataHash(),
             'prompt_version' => config('lucky.openai.prompt_version'),
@@ -158,8 +163,11 @@ class WallpaperAnalysisTest extends TestCase
             return is_string($instructions)
                 && ! str_contains($instructions, 'moon_age')
                 && str_contains($instructions, '1口あたり当選額（prize_per_ticket_vnd）')
+                && str_contains($instructions, '九星（nine_star）と九宮構図（composition_zone）')
                 && is_string($input)
                 && ! str_contains($input, '"moon_age":')
+                && str_contains($input, '"nine_star":"八白土洞明"')
+                && str_contains($input, '"composition_zone":"center"')
                 && str_contains($input, '"purchase_count":3')
                 && str_contains($input, '"prize_per_ticket_vnd":1000000');
         });
@@ -170,6 +178,7 @@ class WallpaperAnalysisTest extends TestCase
         $this->assertSame(1, $snapshot->statistics['records']);
         $this->assertSame(3_000_000, $snapshot->statistics['high_prize_threshold_vnd']);
         $this->assertSame(1, $snapshot->statistics['prize_per_ticket_record_count']);
+        $this->assertSame(1, $snapshot->statistics['nine_palace_record_count']);
         $this->assertSame(1_000_000, $snapshot->statistics['high_prize_per_ticket_threshold_vnd']);
         $this->assertSame('succeeded', $run->status);
     }
@@ -226,7 +235,9 @@ class WallpaperAnalysisTest extends TestCase
         $this->assertDatabaseHas('composition_proposals', [
             'wallpaper_id' => $wallpaper->id,
             'analysis_hash' => $analysis->data_hash,
+            'composition_zone' => 'center',
         ]);
+        $this->assertSame('center', $wallpaper->refresh()->composition_zone);
     }
 
     private function createCurrentAnalysis(): AnalysisSnapshot
@@ -261,6 +272,7 @@ class WallpaperAnalysisTest extends TestCase
             'conclusion' => '黄金の中央庭園 × 実写写真',
             'overview' => '概要',
             'composition' => '配置',
+            'composition_zone' => 'center',
             'color_wu_xing' => '金',
             'symbolism' => '象徴',
         ];
