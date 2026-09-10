@@ -52,7 +52,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertStringNotContainsString('利用可能なソース', $prompt['prompt']);
         $this->assertStringNotContainsString('ファイル名が上記ファイル名と完全に一致', $prompt['prompt']);
         $this->assertStringContainsString('検証内容を含めないでください', $prompt['prompt']);
-        $this->assertStringContainsString('当時の月齢（moon_age）を約29.5日周期の循環データとして比較', $prompt['prompt']);
+        $this->assertStringNotContainsString('moon_age', $prompt['prompt']);
         $this->assertStringContainsString('1口あたり当選額（prize_per_ticket_vnd）', $prompt['prompt']);
         $this->assertStringNotContainsString('data_hash', $prompt['prompt']);
         $this->assertStringNotContainsString('データハッシュ', $prompt['prompt']);
@@ -145,7 +145,7 @@ class ManualWallpaperWorkflowTest extends TestCase
             ->assertHeader('X-Content-Type-Options', 'nosniff');
 
         $data = json_decode($response->getContent(), true, flags: JSON_THROW_ON_ERROR);
-        $this->assertSame('2', $data['schema_version']);
+        $this->assertSame('3', $data['schema_version']);
         $this->assertSame(config('lucky.timezone'), $data['timezone']);
         $this->assertArrayNotHasKey('data_hash', $data);
         $this->assertSame(5, $data['record_count']);
@@ -153,7 +153,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertSame(1_000_000, $data['high_prize_per_ticket_threshold_vnd']);
         $this->assertCount(5, $data['records']);
         $this->assertSame('絶対額1位', $data['records'][0]['title']);
-        $this->assertIsFloat($data['records'][0]['moon_age']);
+        $this->assertArrayNotHasKey('moon_age', $data['records'][0]);
         $this->assertTrue($data['records'][0]['is_high_prize']);
         $this->assertFalse($data['records'][0]['is_high_prize_per_ticket']);
         $this->assertFalse($data['records'][2]['is_high_prize']);
@@ -242,7 +242,7 @@ class ManualWallpaperWorkflowTest extends TestCase
             ->assertOk()
             ->json();
         $this->assertStringContainsString('titleとart_styleはそれぞれ255文字以内', $prompt['prompt']);
-        $this->assertStringContainsString('これらは月を構図やモチーフに含める指示ではありません。', $prompt['prompt']);
+        $this->assertStringNotContainsString('moon_age', $prompt['prompt']);
         $this->assertStringContainsString('回答と同じ内容をUTF-8のJSONファイル', $prompt['prompt']);
         $this->assertStringContainsString('wallpaper-composition-2026-08-10.json', $prompt['prompt']);
         $json = "```json\n".json_encode($this->proposalPayload('手動の黄金庭園'), JSON_UNESCAPED_UNICODE)."\n```";

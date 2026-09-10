@@ -13,21 +13,16 @@ class CalendarContextServiceTest extends TestCase
 
         $service = app(CalendarContextService::class);
         $context = $service->forDate('2026-07-26');
-        $moon = $service->moonForDate('2026-07-26');
 
         $this->assertSame('2026-07-26', $context['target_date']);
         $this->assertSame('Asia/Ho_Chi_Minh', $context['timezone']);
+        $this->assertSame('夏', $context['season']);
         $this->assertSame('赤口', $context['rokuyo']);
         $this->assertSame('辛丑', $context['day_ganzhi']);
         $this->assertSame('八白土洞明', $context['nine_star']);
-        $this->assertSame('満ちていく凸月', $context['moon_phase']);
-        $this->assertGreaterThan(11.5, $context['moon_age']);
-        $this->assertLessThan(11.9, $context['moon_age']);
+        $this->assertArrayNotHasKey('moon_age', $context);
+        $this->assertArrayNotHasKey('moon_illumination', $context);
+        $this->assertArrayNotHasKey('moon_phase', $context);
         $this->assertSame([], $context['warnings']);
-        $this->assertSame($context['moon_age'], $moon['moon_age']);
-        $this->assertSame($context['moon_illumination'], $moon['moon_illumination']);
-        $this->assertSame($context['moon_phase'], $moon['moon_phase']);
-        $this->assertArrayNotHasKey('season', $moon);
-        $this->assertSame([], $moon['warnings']);
     }
 }
