@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Exceptions\ExternalApiException;
 use App\Models\ApiRun;
+use App\Models\Wallpaper;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use JsonException;
@@ -13,13 +14,14 @@ class OpenAiClient
     public const PROPOSAL_SCHEMA = [
         'type' => 'object',
         'additionalProperties' => false,
-        'required' => ['title', 'art_style', 'conclusion', 'overview', 'composition', 'color_wu_xing', 'symbolism'],
+        'required' => ['title', 'art_style', 'conclusion', 'overview', 'composition', 'composition_zone', 'color_wu_xing', 'symbolism'],
         'properties' => [
             'title' => ['type' => 'string'],
             'art_style' => ['type' => 'string'],
             'conclusion' => ['type' => 'string'],
             'overview' => ['type' => 'string'],
             'composition' => ['type' => 'string'],
+            'composition_zone' => ['type' => 'string', 'enum' => Wallpaper::COMPOSITION_ZONES],
             'color_wu_xing' => ['type' => 'string'],
             'symbolism' => ['type' => 'string'],
         ],

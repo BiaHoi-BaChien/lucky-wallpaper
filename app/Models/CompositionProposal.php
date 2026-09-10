@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $conclusion
  * @property string $overview
  * @property string $composition
+ * @property string $composition_zone
  * @property string $color_wu_xing
  * @property string $symbolism
  * @property string $input_hash

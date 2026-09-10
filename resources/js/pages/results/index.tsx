@@ -17,6 +17,7 @@ interface Wallpaper {
     title: string | null;
     art_style: string | null;
     composition: string | null;
+    composition_zone: string | null;
     prize_vnd: number | null;
     purchase_count: number | null;
     state: string;
@@ -41,6 +42,7 @@ export default function Results({
     const result = useForm({
         prize_vnd: wallpaper?.prize_vnd?.toString() ?? '',
         purchase_count: wallpaper?.purchase_count?.toString() ?? '',
+        composition_zone: wallpaper?.composition_zone ?? '',
     });
     const { operation: resultOperation } = useOperation(latestRun);
     const { integrations, flash } = usePage<SharedData>().props;
@@ -109,6 +111,21 @@ export default function Results({
                                     : '実績はサーバーに保存します。NotionバックアップはNOTION_TOKEN未設定のため実行されません。'}
                             </p>
                             <form onSubmit={save} className="space-y-3">
+                                <Label htmlFor="composition_zone">九宮構図</Label>
+                                <select
+                                    id="composition_zone"
+                                    value={result.data.composition_zone}
+                                    onChange={(e) => result.setData('composition_zone', e.target.value)}
+                                    className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-md border px-3 text-sm shadow-xs outline-none focus-visible:ring-[3px]"
+                                >
+                                    <option value="">未分類</option>
+                                    {compositionZones.map(([value, label]) => (
+                                        <option key={value} value={value}>
+                                            {label}
+                                        </option>
+                                    ))}
+                                </select>
+                                <InputError message={result.errors.composition_zone} />
                                 <Label htmlFor="prize_vnd">当選金額（VND、0以上の整数）</Label>
                                 <Input
                                     id="prize_vnd"
@@ -151,3 +168,15 @@ export default function Results({
         </AppLayout>
     );
 }
+
+const compositionZones = [
+    ['top_left', '左上'],
+    ['top', '上部'],
+    ['top_right', '右上'],
+    ['left', '左'],
+    ['center', '中央'],
+    ['right', '右'],
+    ['bottom_left', '左下'],
+    ['bottom', '下部'],
+    ['bottom_right', '右下'],
+] as const;

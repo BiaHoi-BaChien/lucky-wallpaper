@@ -8,6 +8,7 @@ use App\Models\Wallpaper;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use JsonException;
 
@@ -19,6 +20,7 @@ class WallpaperPromptService
         'conclusion',
         'overview',
         'composition',
+        'composition_zone',
         'color_wu_xing',
         'symbolism',
     ];
@@ -137,6 +139,7 @@ PROMPT;
             '画風: '.$details->art_style,
             '概要: '.$details->overview,
             '配置: '.$details->composition,
+            '九宮構図: '.(Wallpaper::COMPOSITION_ZONE_LABELS[$details->composition_zone] ?? '未分類'),
             '色彩・五行: '.$details->color_wu_xing,
             '象徴意図: '.$details->symbolism,
             '視認性: ロック画面の時計やアイコンが重なる上部と下部は情報量を抑え、主要モチーフは安全領域に配置する。',
@@ -186,6 +189,7 @@ PROMPT;
             'conclusion' => ['required', 'string', 'max:65535'],
             'overview' => ['required', 'string', 'max:500000'],
             'composition' => ['required', 'string', 'max:500000'],
+            'composition_zone' => ['required', 'string', Rule::in(Wallpaper::COMPOSITION_ZONES)],
             'color_wu_xing' => ['required', 'string', 'max:500000'],
             'symbolism' => ['required', 'string', 'max:500000'],
         ], [
@@ -248,6 +252,7 @@ PROMPT;
 あなたは金運をテーマにしたスマートフォン壁紙のアートディレクターです。
 これは{$targetDate}用のスマートフォン壁紙です。
 対象日に使用することを前提に、入力された暦情報を反映した構図を提案してください。
+composition_zone は主要モチーフの視覚的重心を基準に、top_left、top、top_right、left、center、right、bottom_left、bottom、bottom_rightのいずれか1つを選んでください。
 historical_analysis_markdown の傾向、反例、注意点、活用指針を構図検討に反映してください。
 画風は連続利用を避け、絵画、実写写真、彫刻写真など幅広くローテーションしてください。
 動植物、人物、現象、天体、抽象像、無機物、建築などあらゆるモチーフを利用できます。

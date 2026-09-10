@@ -145,15 +145,18 @@ class ManualWallpaperWorkflowTest extends TestCase
             ->assertHeader('X-Content-Type-Options', 'nosniff');
 
         $data = json_decode($response->getContent(), true, flags: JSON_THROW_ON_ERROR);
-        $this->assertSame('3', $data['schema_version']);
+        $this->assertSame('4', $data['schema_version']);
         $this->assertSame(config('lucky.timezone'), $data['timezone']);
         $this->assertArrayNotHasKey('data_hash', $data);
         $this->assertSame(5, $data['record_count']);
         $this->assertSame(4, $data['prize_per_ticket_record_count']);
+        $this->assertSame(0, $data['nine_palace_record_count']);
         $this->assertSame(1_000_000, $data['high_prize_per_ticket_threshold_vnd']);
         $this->assertCount(5, $data['records']);
         $this->assertSame('絶対額1位', $data['records'][0]['title']);
         $this->assertArrayNotHasKey('moon_age', $data['records'][0]);
+        $this->assertArrayHasKey('nine_star', $data['records'][0]);
+        $this->assertNull($data['records'][0]['composition_zone']);
         $this->assertTrue($data['records'][0]['is_high_prize']);
         $this->assertFalse($data['records'][0]['is_high_prize_per_ticket']);
         $this->assertFalse($data['records'][2]['is_high_prize']);
@@ -259,10 +262,12 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertDatabaseHas('wallpapers', [
             'target_date' => '2026-08-10',
             'title' => '手動の黄金庭園',
+            'composition_zone' => 'center',
             'state' => 'proposed',
         ]);
         $this->assertDatabaseHas('composition_proposals', [
             'title' => '手動の黄金庭園',
+            'composition_zone' => 'center',
             'sequence' => 1,
             'status' => 'proposed',
         ]);
@@ -331,6 +336,32 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertDatabaseCount('wallpapers', 0);
         $this->assertDatabaseCount('composition_proposals', 0);
         Queue::assertNothingPushed();
+    }
+
+    public function test_manual_proposal_requires_a_supported_composition_zone(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $this->createCurrentAnalysis();
+        $prompt = $this->actingAs($user)
+            ->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-08-14')
+            ->assertOk()
+            ->json();
+        $missing = $this->proposalPayload('九宮なし');
+        unset($missing['composition_zone']);
+
+        foreach ([$missing, [...$this->proposalPayload('不正な九宮'), 'composition_zone' => 'outside']] as $payload) {
+            $this->actingAs($user)
+                ->post('/wallpapers/proposals/manual-result', [
+                    'target_date' => '2026-08-14',
+                    'proposal_json' => json_encode($payload, JSON_UNESCAPED_UNICODE),
+                    'prompt_hash' => $prompt['prompt_hash'],
+                ])
+                ->assertSessionHasErrors('proposal_json');
+        }
+
+        $this->assertDatabaseCount('wallpapers', 0);
+        $this->assertDatabaseCount('composition_proposals', 0);
     }
 
     public function test_manual_proposal_reports_overlong_art_style_on_the_create_page(): void
@@ -548,6 +579,7 @@ class ManualWallpaperWorkflowTest extends TestCase
             'conclusion' => $title.' × 実写写真',
             'overview' => '概要',
             'composition' => '配置',
+            'composition_zone' => 'center',
             'color_wu_xing' => '金',
             'symbolism' => '象徴',
         ];
