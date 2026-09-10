@@ -20,7 +20,7 @@ import AppLayout from '@/layouts/app-layout';
 import { proposalStatusLabel, wallpaperStateLabel } from '@/lib/wallpaper-state';
 import { SharedData } from '@/types';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
-import { ArchiveRestore, ChevronLeft, ChevronRight, Download, LoaderCircle } from 'lucide-react';
+import { ArchiveRestore, ChartNoAxesCombined, ChevronLeft, ChevronRight, Download, LoaderCircle } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 
 interface Proposal {
@@ -165,9 +165,17 @@ export default function ShowWallpaper({
             <Head title={`${wallpaper.target_date} 壁紙`} />
             <div className="max-w-6xl space-y-6 p-4">
                 {flash.status && <Alert>{flash.status}</Alert>}
-                <div>
-                    <h1 className="text-2xl font-bold">{wallpaper.target_date}</h1>
-                    <p className="text-muted-foreground">状態: {wallpaperStateLabel(wallpaper.state)}</p>
+                <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+                    <div>
+                        <h1 className="text-2xl font-bold">{wallpaper.target_date}</h1>
+                        <p className="text-muted-foreground">状態: {wallpaperStateLabel(wallpaper.state)}</p>
+                    </div>
+                    <Button asChild>
+                        <Link href={route('results.index', { date: wallpaper.target_date })}>
+                            <ChartNoAxesCombined aria-hidden="true" />
+                            実績登録
+                        </Link>
+                    </Button>
                 </div>
                 <nav className="flex justify-between gap-3" aria-label="壁紙履歴の日付移動">
                     <Button variant="outline" disabled={previousWallpaperId === null} asChild={previousWallpaperId !== null}>
