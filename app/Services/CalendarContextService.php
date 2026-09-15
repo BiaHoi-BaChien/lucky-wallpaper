@@ -36,7 +36,7 @@ class CalendarContextService
             $context += [
                 'rokuyo' => $lunar->getLiuYao(),
                 'day_ganzhi' => $lunar->getDayInGanZhiExact(),
-                'nine_star' => $nineStar->toString(),
+                'nine_star' => self::NINE_STARS[$nineStar->getIndex()],
             ];
         } catch (Throwable) {
             $context['warnings'][] = '暦情報（六曜・日干支・九星）を検証できなかったため省略しました。';
