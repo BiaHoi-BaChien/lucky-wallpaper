@@ -25,10 +25,20 @@ class WallpaperAnalysisTest extends TestCase
 
     public function test_analysis_data_schema_version_is_part_of_freshness_hash(): void
     {
-        $hash = app(HistoricalAnalysisService::class)->currentDataHash();
+        $service = app(HistoricalAnalysisService::class);
+        $hash = $service->currentDataHash();
+        $previous = AnalysisSnapshot::query()->create([
+            'data_hash' => hash('sha256', '4|[]'),
+            'prompt_version' => config('lucky.openai.prompt_version'),
+            'model' => config('lucky.openai.text_model'),
+            'summary' => '# 本命星を補助情報に含める前の分析',
+            'status' => 'succeeded',
+        ]);
 
-        $this->assertSame(hash('sha256', '4|[]'), $hash);
-        $this->assertNotSame(hash('sha256', '[]'), $hash);
+        $this->assertSame(hash('sha256', '5|[]'), $hash);
+        $this->assertNotSame($previous->data_hash, $hash);
+        $this->assertNull($service->currentSnapshot());
+        $this->assertTrue($service->latestDisplayableSnapshot()->is($previous));
     }
 
     public function test_analysis_click_queues_job_and_creates_snapshot(): void
@@ -165,6 +175,8 @@ class WallpaperAnalysisTest extends TestCase
                 && ! str_contains($instructions, 'moon_age')
                 && str_contains($instructions, '1口あたり当選額（prize_per_ticket_vnd）')
                 && str_contains($instructions, '九星（nine_star）と九宮構図（composition_zone）')
+                && str_contains($instructions, '利用者の本命星は六白金星（五行：金）です。')
+                && str_contains($instructions, '実績で見られた傾向と九星に基づく解釈を分け')
                 && is_string($input)
                 && ! str_contains($input, '"moon_age":')
                 && str_contains($input, '"nine_star":"八白土洞明"')
@@ -182,6 +194,36 @@ class WallpaperAnalysisTest extends TestCase
         $this->assertSame(1, $snapshot->statistics['nine_palace_record_count']);
         $this->assertSame(1_000_000, $snapshot->statistics['high_prize_per_ticket_threshold_vnd']);
         $this->assertSame('succeeded', $run->status);
+    }
+
+    public function test_analysis_merge_preserves_supplementary_birth_star_context(): void
+    {
+        config(['lucky.analysis.records_per_chunk' => 1]);
+        Http::preventStrayRequests();
+        Wallpaper::factory()->create(['target_date' => '2026-07-26', 'prize_vnd' => 3_000_000]);
+        Wallpaper::factory()->create(['target_date' => '2026-07-27', 'prize_vnd' => 1_000_000]);
+        $snapshot = $this->createCurrentAnalysis();
+        $partial = "# 部分分析\n\n## 本命星（六白金星）を踏まえた補助的な考察\n\n- 対象1件。傾向は判断できません。";
+        $merged = "# 高額当選壁紙の傾向分析\n\n## 本命星（六白金星）を踏まえた補助的な考察\n\n- 対象2件。傾向は判断できません。";
+        $openAi = $this->mock(OpenAiClient::class);
+        $openAi->shouldReceive('structured')->twice()
+            ->withArgs(fn (ApiRun $run, string $instructions, string $input, array $schema, string $name): bool => $name === 'wallpaper_analysis_chunk'
+                && str_contains($instructions, '利用者の本命星は六白金星（五行：金）です。'))
+            ->andReturn(['analysis_markdown' => $partial]);
+        $openAi->shouldReceive('structured')->once()
+            ->withArgs(fn (ApiRun $run, string $instructions, string $input, array $schema, string $name): bool => $name === 'wallpaper_analysis_summary'
+                && str_contains($instructions, '本命星（六白金星）を踏まえた補助的な考察')
+                && str_contains($instructions, '実績で見られた傾向と九星に基づく解釈を分け')
+                && json_decode($input, true) === [$partial, $partial])
+            ->andReturn(['analysis_markdown' => $merged]);
+
+        $result = app(HistoricalAnalysisService::class)->analyze($snapshot);
+
+        $this->assertSame($merged, $result->summary);
+        $this->assertSame(2, $result->statistics['records']);
+        $this->assertSame(2, $result->statistics['chunks']);
+        $this->assertSame('succeeded', $result->status);
+        Http::assertNothingSent();
     }
 
     public function test_composition_api_receives_target_date_and_saved_markdown_analysis(): void
