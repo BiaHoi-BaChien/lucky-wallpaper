@@ -233,13 +233,11 @@ class ManualWallpaperWorkflowTest extends TestCase
         Queue::assertNothingPushed();
     }
 
-    public function test_manual_initial_proposal_accepts_fenced_json_without_api_usage(): void
+    public function test_manual_initial_proposal_without_analysis_accepts_fenced_json_without_api_usage(): void
     {
         Queue::fake();
         Http::preventStrayRequests();
         $user = User::factory()->create();
-        $this->createCurrentAnalysis();
-
         $prompt = $this->actingAs($user)
             ->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-08-10')
             ->assertOk()

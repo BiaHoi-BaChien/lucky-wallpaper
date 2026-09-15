@@ -40,15 +40,13 @@ class WallpaperPromptService
      *     context_hash: string,
      *     filename: string,
      *     calendar: array,
-     *     analysis_hash: string
+     *     analysis_hash: ?string
      * }
      */
     public function composition(string $targetDate, ?Wallpaper $wallpaper = null, bool $reproposal = false): array
     {
-        $snapshot = $this->analysisService->currentSnapshot();
-        if ($snapshot === null) {
-            throw new ExternalApiException('historical_analysis_required', false);
-        }
+        $snapshot = $this->analysisService->currentSnapshot()
+            ?? $this->analysisService->latestDisplayableSnapshot();
 
         $calendar = $this->calendarService->forDate($targetDate);
         $topWinners = Wallpaper::query()
@@ -75,7 +73,7 @@ class WallpaperPromptService
         $input = json_encode([
             'target_date' => $targetDate,
             'calendar' => $calendar,
-            'historical_analysis_markdown' => $snapshot->summary,
+            'historical_analysis_markdown' => $snapshot->summary ?? '',
             'top_winners' => $topWinners,
             'recent_art_styles' => $recentStyles,
             'rejected_same_day_proposals' => $rejected,
@@ -106,7 +104,7 @@ JSON Schema:
 PROMPT;
         $inputHash = hash(
             'sha256',
-            $snapshot->data_hash.'|'.$snapshot->prompt_version.'|'.$input,
+            ($snapshot->data_hash ?? '').'|'.($snapshot->prompt_version ?? config('lucky.openai.prompt_version')).'|'.$input,
         );
 
         return [
@@ -118,7 +116,7 @@ PROMPT;
             'context_hash' => $inputHash,
             'filename' => 'wallpaper-composition-'.$targetDate.'.txt',
             'calendar' => $calendar,
-            'analysis_hash' => $snapshot->data_hash,
+            'analysis_hash' => $snapshot?->data_hash,
         ];
     }
 
