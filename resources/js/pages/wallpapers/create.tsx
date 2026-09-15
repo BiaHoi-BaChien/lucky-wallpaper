@@ -114,7 +114,7 @@ export default function CreateWallpaper({
                                 <ExecutionModeSelector value={proposalMode} onChange={setProposalMode} />
                                 {proposalMode === 'manual' ? (
                                     <>
-                                        <Button type="button" disabled={!analysisIsLatest || proposalPromptLoading} onClick={loadProposalPrompt}>
+                                        <Button type="button" disabled={proposalPromptLoading} onClick={loadProposalPrompt}>
                                             {proposalPromptLoading && <LoaderCircle className="animate-spin" aria-hidden="true" />}
                                             {proposalPromptLoading ? '作成中' : '構図提案プロンプトを作成'}
                                         </Button>
@@ -158,8 +158,8 @@ export default function CreateWallpaper({
                                         onConfirm={() => apiProposalForm.post(route('wallpapers.proposals.store'))}
                                     />
                                 )}
-                                {!analysisIsLatest && (
-                                    <p className="text-muted-foreground text-sm">構図提案の前に、最新の傾向分析を完了してください。</p>
+                                {proposalMode === 'api' && !analysisIsLatest && (
+                                    <p className="text-muted-foreground text-sm">APIでの構図提案の前に、最新の傾向分析を完了してください。</p>
                                 )}
                                 <InputError message={apiProposalForm.errors.api_confirmed} />
                             </div>
