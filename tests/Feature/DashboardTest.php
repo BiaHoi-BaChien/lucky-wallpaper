@@ -72,4 +72,27 @@ class DashboardTest extends TestCase
             ->where('ninePalace.stars.7.zones.top.averagePrizePerTicketVnd', null)
             ->where('ninePalace.stars.7.zones.top.heatLevel', 4));
     }
+
+    public function test_dashboard_identifies_today_and_counts_prizes_for_the_second_nine_star(): void
+    {
+        config(['lucky.timezone' => 'Asia/Ho_Chi_Minh']);
+        $this->travelTo('2026-09-15 12:00:00');
+        $user = User::factory()->create();
+        Wallpaper::factory()->create([
+            'target_date' => '2026-09-15',
+            'composition_zone' => 'center',
+            'prize_vnd' => 6_000,
+            'purchase_count' => 3,
+        ]);
+
+        $this->actingAs($user)->get('/dashboard')->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('ninePalace.todayNineStar', '二黒土天璇')
+            ->where('ninePalace.stars.1.name', '二黒土天璇')
+            ->where('ninePalace.stars.1.zones.center.records', 1)
+            ->where('ninePalace.stars.1.zones.center.averagePrizeVnd', 6_000)
+            ->where('ninePalace.stars.1.zones.center.perTicketRecords', 1)
+            ->where('ninePalace.stars.1.zones.center.averagePrizePerTicketVnd', 2_000)
+            ->where('ninePalace.stars.1.zones.center.heatLevel', 4)
+            ->where('ninePalace.unclassifiedRecords', 0));
+    }
 }
