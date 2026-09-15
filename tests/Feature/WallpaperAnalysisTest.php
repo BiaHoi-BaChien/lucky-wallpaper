@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\ExternalApiException;
 use App\Jobs\GenerateCompositionProposal;
 use App\Jobs\GenerateHistoricalAnalysis;
 use App\Models\AnalysisSnapshot;
@@ -238,6 +239,85 @@ class WallpaperAnalysisTest extends TestCase
             'composition_zone' => 'center',
         ]);
         $this->assertSame('center', $wallpaper->refresh()->composition_zone);
+    }
+
+    public function test_composition_api_rejects_analysis_invalidated_while_queued(): void
+    {
+        config(['lucky.notion.token' => '']);
+        Queue::fake();
+        Http::preventStrayRequests();
+        $user = User::factory()->create();
+        $history = Wallpaper::factory()->create([
+            'target_date' => '2026-07-01',
+            'prize_vnd' => 1_000,
+            'purchase_count' => 1,
+        ]);
+        $analysis = $this->createCurrentAnalysis();
+        $this->actingAs($user)
+            ->post('/wallpapers/proposals', ['target_date' => '2026-08-04', 'api_confirmed' => true])
+            ->assertSessionHasNoErrors();
+        Queue::assertPushed(GenerateCompositionProposal::class);
+        $run = ApiRun::query()->where('type', 'composition_proposal')->sole();
+
+        $this->put("/wallpapers/{$history->id}/result", [
+            'prize_vnd' => 1_000,
+            'purchase_count' => 2,
+        ])->assertSessionHasNoErrors();
+        $this->assertSame('invalidated', $analysis->refresh()->status);
+        $openAi = $this->mock(OpenAiClient::class);
+        $openAi->shouldNotReceive('structured')->andReturn($this->proposalPayload());
+
+        try {
+            (new GenerateCompositionProposal($run->subject_id, $run->id))->handle(
+                app(WallpaperPromptService::class),
+                $openAi,
+            );
+            $this->fail('API proposals must reject analysis invalidated while queued.');
+        } catch (ExternalApiException $exception) {
+            $this->assertSame('historical_analysis_required', $exception->errorCode);
+        }
+
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('composition_proposals', 0);
+        $this->assertDatabaseHas('wallpapers', ['id' => $run->subject_id, 'state' => 'draft']);
+    }
+
+    public function test_composition_api_rechecks_analysis_before_saving_response(): void
+    {
+        Queue::fake();
+        Http::preventStrayRequests();
+        $user = User::factory()->create();
+        $history = Wallpaper::factory()->create([
+            'target_date' => '2026-07-01',
+            'prize_vnd' => 1_000,
+            'purchase_count' => 1,
+        ]);
+        $analysis = $this->createCurrentAnalysis();
+        $this->actingAs($user)
+            ->post('/wallpapers/proposals', ['target_date' => '2026-08-04', 'api_confirmed' => true])
+            ->assertSessionHasNoErrors();
+        $run = ApiRun::query()->where('type', 'composition_proposal')->sole();
+        $openAi = $this->mock(OpenAiClient::class);
+        $openAi->shouldReceive('structured')->once()->andReturnUsing(function () use ($history, $analysis): array {
+            $history->update(['purchase_count' => 2]);
+            $analysis->update(['status' => 'invalidated']);
+
+            return $this->proposalPayload();
+        });
+
+        try {
+            (new GenerateCompositionProposal($run->subject_id, $run->id))->handle(
+                app(WallpaperPromptService::class),
+                $openAi,
+            );
+            $this->fail('API proposals must recheck current analysis before saving.');
+        } catch (ExternalApiException $exception) {
+            $this->assertSame('historical_analysis_required', $exception->errorCode);
+        }
+
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('composition_proposals', 0);
+        $this->assertDatabaseHas('wallpapers', ['id' => $run->subject_id, 'state' => 'draft']);
     }
 
     private function createCurrentAnalysis(): AnalysisSnapshot

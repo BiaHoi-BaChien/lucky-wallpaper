@@ -43,10 +43,20 @@ class WallpaperPromptService
      *     analysis_hash: ?string
      * }
      */
-    public function composition(string $targetDate, ?Wallpaper $wallpaper = null, bool $reproposal = false): array
-    {
-        $snapshot = $this->analysisService->currentSnapshot()
-            ?? $this->analysisService->latestDisplayableSnapshot();
+    public function composition(
+        string $targetDate,
+        ?Wallpaper $wallpaper = null,
+        bool $reproposal = false,
+        bool $allowWithoutCurrentAnalysis = false,
+    ): array {
+        $snapshot = $this->analysisService->currentSnapshot();
+        if ($snapshot === null) {
+            if (! $allowWithoutCurrentAnalysis) {
+                throw new ExternalApiException('historical_analysis_required', false);
+            }
+
+            $snapshot = $this->analysisService->latestDisplayableSnapshot();
+        }
 
         $calendar = $this->calendarService->forDate($targetDate);
         $topWinners = Wallpaper::query()
@@ -209,13 +219,15 @@ PROMPT;
         array $result,
         string $expectedInputHash,
         bool $reproposal,
+        bool $allowWithoutCurrentAnalysis = false,
     ): CompositionProposal {
-        return DB::transaction(function () use ($wallpaper, $result, $expectedInputHash, $reproposal): CompositionProposal {
+        return DB::transaction(function () use ($wallpaper, $result, $expectedInputHash, $reproposal, $allowWithoutCurrentAnalysis): CompositionProposal {
             $wallpaper = Wallpaper::query()->lockForUpdate()->findOrFail($wallpaper->id);
             $prepared = $this->composition(
                 $wallpaper->target_date->format('Y-m-d'),
                 $wallpaper,
                 $reproposal,
+                $allowWithoutCurrentAnalysis,
             );
             if (! hash_equals($prepared['input_hash'], $expectedInputHash)) {
                 throw new ExternalApiException('composition_prompt_stale', false);

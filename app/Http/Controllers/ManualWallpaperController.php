@@ -30,7 +30,7 @@ class ManualWallpaperController extends Controller
         }
 
         return response()->json(
-            $this->promptResponse($this->prepareComposition($prompts, $validated['target_date'])),
+            $this->promptResponse($this->prepareComposition($prompts, $validated['target_date'], allowWithoutCurrentAnalysis: true)),
         );
     }
 
@@ -44,7 +44,7 @@ class ManualWallpaperController extends Controller
             'prompt_hash' => ['required', 'string', 'size:64'],
         ]);
         $this->rejectActiveRun('composition_proposal');
-        $prepared = $this->prepareComposition($prompts, $validated['target_date']);
+        $prepared = $this->prepareComposition($prompts, $validated['target_date'], allowWithoutCurrentAnalysis: true);
         $this->assertPromptHash($prepared['prompt_hash'], $validated['prompt_hash'], 'proposal_json');
         $result = $prompts->parseProposal($validated['proposal_json']);
 
@@ -64,7 +64,7 @@ class ManualWallpaperController extends Controller
                 'source' => 'generated',
                 'state' => 'draft',
             ]);
-            $prompts->saveProposal($wallpaper, $result, $prepared['input_hash'], false);
+            $prompts->saveProposal($wallpaper, $result, $prepared['input_hash'], false, allowWithoutCurrentAnalysis: true);
 
             return $wallpaper;
         });
@@ -218,9 +218,10 @@ class ManualWallpaperController extends Controller
         string $targetDate,
         ?Wallpaper $wallpaper = null,
         bool $reproposal = false,
+        bool $allowWithoutCurrentAnalysis = false,
     ): array {
         try {
-            return $prompts->composition($targetDate, $wallpaper, $reproposal);
+            return $prompts->composition($targetDate, $wallpaper, $reproposal, $allowWithoutCurrentAnalysis);
         } catch (ExternalApiException $exception) {
             if ($exception->errorCode === 'historical_analysis_required') {
                 throw ValidationException::withMessages([

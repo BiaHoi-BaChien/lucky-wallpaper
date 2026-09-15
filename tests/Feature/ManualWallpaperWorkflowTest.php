@@ -273,6 +273,63 @@ class ManualWallpaperWorkflowTest extends TestCase
         Queue::assertNotPushed(GenerateCompositionProposal::class);
     }
 
+    public function test_manual_initial_proposal_can_use_outdated_analysis(): void
+    {
+        Queue::fake();
+        Http::preventStrayRequests();
+        $user = User::factory()->create();
+        $history = Wallpaper::factory()->create([
+            'target_date' => '2026-07-01',
+            'prize_vnd' => 1_000,
+            'purchase_count' => 1,
+        ]);
+        $analysis = $this->createCurrentAnalysis();
+        $history->update(['purchase_count' => 2]);
+        $analysis->update(['status' => 'invalidated']);
+        $this->assertNull(app(HistoricalAnalysisService::class)->currentSnapshot());
+
+        $prompt = $this->actingAs($user)
+            ->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-08-10')
+            ->assertOk()
+            ->json();
+        $this->assertStringContainsString('テスト', $prompt['prompt']);
+        $this->post('/wallpapers/proposals/manual-result', [
+            'target_date' => '2026-08-10',
+            'proposal_json' => json_encode($this->proposalPayload('過去分析からの案'), JSON_UNESCAPED_UNICODE),
+            'prompt_hash' => $prompt['prompt_hash'],
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('composition_proposals', [
+            'title' => '過去分析からの案',
+            'analysis_hash' => $analysis->data_hash,
+        ]);
+        $this->assertDatabaseCount('api_runs', 0);
+        Http::assertNothingSent();
+        Queue::assertNothingPushed();
+    }
+
+    public function test_manual_reproposal_still_requires_current_analysis(): void
+    {
+        Http::preventStrayRequests();
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create(['state' => 'proposed']);
+        $previous = $wallpaper->proposals()->create([
+            ...$this->proposalPayload('以前の案'),
+            'sequence' => 1,
+            'status' => 'proposed',
+            'input_hash' => str_repeat('a', 64),
+        ]);
+
+        $this->actingAs($user)
+            ->getJson("/wallpapers/{$wallpaper->id}/proposals/manual-prompt")
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('proposal_json');
+
+        $this->assertSame('proposed', $previous->refresh()->status);
+        $this->assertDatabaseCount('composition_proposals', 1);
+        Http::assertNothingSent();
+    }
+
     public function test_manual_reproposal_rejects_previous_proposal(): void
     {
         Queue::fake();
