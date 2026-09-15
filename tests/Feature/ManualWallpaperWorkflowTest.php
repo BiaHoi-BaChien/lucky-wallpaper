@@ -54,6 +54,8 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertStringContainsString('検証内容を含めないでください', $prompt['prompt']);
         $this->assertStringNotContainsString('moon_age', $prompt['prompt']);
         $this->assertStringContainsString('1口あたり当選額（prize_per_ticket_vnd）', $prompt['prompt']);
+        $this->assertStringContainsString('利用者の本命星は六白金星（五行：金）です。', $prompt['prompt']);
+        $this->assertStringContainsString('実績で見られた傾向と九星に基づく解釈を分け', $prompt['prompt']);
         $this->assertStringNotContainsString('data_hash', $prompt['prompt']);
         $this->assertStringNotContainsString('データハッシュ', $prompt['prompt']);
         $this->assertStringNotContainsString('プロンプトへ埋め込まない壁紙', $prompt['prompt']);
@@ -145,7 +147,7 @@ class ManualWallpaperWorkflowTest extends TestCase
             ->assertHeader('X-Content-Type-Options', 'nosniff');
 
         $data = json_decode($response->getContent(), true, flags: JSON_THROW_ON_ERROR);
-        $this->assertSame('4', $data['schema_version']);
+        $this->assertSame('5', $data['schema_version']);
         $this->assertSame(config('lucky.timezone'), $data['timezone']);
         $this->assertArrayNotHasKey('data_hash', $data);
         $this->assertSame(5, $data['record_count']);
