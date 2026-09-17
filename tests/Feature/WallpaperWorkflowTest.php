@@ -188,12 +188,20 @@ class WallpaperWorkflowTest extends TestCase
         ])->assertSessionHasNoErrors();
         $this->assertSame('top_left', $wallpaper->refresh()->composition_zone);
         $this->assertSame('invalidated', $snapshot->refresh()->status);
+        $this->actingAs($user)->get("/wallpapers/{$wallpaper->id}")
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('wallpapers/show', false)
+                ->where('compositionZoneLabel', '左上'));
 
         $this->actingAs($user)->put("/wallpapers/{$wallpaper->id}/result", [
             'prize_vnd' => '1000',
             'composition_zone' => '',
         ])->assertSessionHasNoErrors();
         $this->assertNull($wallpaper->refresh()->composition_zone);
+        $this->actingAs($user)->get("/wallpapers/{$wallpaper->id}")
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('wallpapers/show', false)
+                ->where('compositionZoneLabel', '未分類'));
     }
 
     public function test_result_is_saved_without_queuing_backup_when_notion_is_not_configured(): void

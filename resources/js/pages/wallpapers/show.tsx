@@ -53,6 +53,7 @@ interface Wallpaper {
 
 export default function ShowWallpaper({
     wallpaper,
+    compositionZoneLabel,
     latestApiRun,
     localImageAvailable,
     downloadAvailable,
@@ -61,6 +62,7 @@ export default function ShowWallpaper({
     nextWallpaperId,
 }: {
     wallpaper: Wallpaper;
+    compositionZoneLabel: string;
     latestApiRun: Operation | null;
     localImageAvailable: boolean;
     downloadAvailable: boolean;
@@ -74,7 +76,7 @@ export default function ShowWallpaper({
     const current = wallpaper.proposals.find((proposal) => proposal.status === 'proposed') ?? wallpaper.proposals[0];
     const details = current ?? (hasCompositionDetails(wallpaper) ? wallpaper : null);
     const displayedTitle = details?.conclusion || details?.title || '構図の詳細';
-    const compositionDetails = details ? formatCompositionDetails(details) : '';
+    const compositionDetails = details ? formatCompositionDetails(details, compositionZoneLabel) : '';
     const canCreateImage = !localImageAvailable && details !== null;
     const canRestoreImage = !localImageAvailable && current?.status !== 'proposed';
     const [restoring, setRestoring] = useState(false);
@@ -266,6 +268,7 @@ export default function ShowWallpaper({
                                         body={details.overview}
                                     />
                                     {details.composition !== details.overview && <Section title="配置" body={details.composition} />}
+                                    <Section title="九宮構図" body={compositionZoneLabel} />
                                     <Section title="色彩・五行" body={details.color_wu_xing} />
                                     <Section title="象徴意図" body={details.symbolism} />
 
@@ -431,10 +434,11 @@ function hasCompositionDetails(wallpaper: Wallpaper): boolean {
     );
 }
 
-function formatCompositionDetails(details: Proposal | Wallpaper): string {
+function formatCompositionDetails(details: Proposal | Wallpaper, compositionZoneLabel: string): string {
     const sections = [
         details.overview?.trim() ? `${details.overview === details.composition ? '構図の詳細' : '概要'}\n${details.overview.trim()}` : '',
         details.composition?.trim() && details.composition !== details.overview ? `配置\n${details.composition.trim()}` : '',
+        `九宮構図\n${compositionZoneLabel}`,
         details.color_wu_xing?.trim() ? `色彩・五行\n${details.color_wu_xing.trim()}` : '',
         details.symbolism?.trim() ? `象徴意図\n${details.symbolism.trim()}` : '',
     ];
