@@ -97,6 +97,7 @@ class WallpaperController extends Controller
 
         return Inertia::render('wallpapers/show', [
             'wallpaper' => $wallpaper->load(['proposals' => fn ($query) => $query->orderByDesc('sequence')]),
+            'compositionZoneLabel' => Wallpaper::COMPOSITION_ZONE_LABELS[$wallpaper->composition_zone] ?? '未分類',
             'localImageAvailable' => $localImageAvailable,
             'downloadAvailable' => $localImageAvailable
                 || ($wallpaper->notion_page_id !== null && $notion->isConfigured()),
