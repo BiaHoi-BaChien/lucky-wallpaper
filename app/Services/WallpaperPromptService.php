@@ -142,6 +142,7 @@ PROMPT;
     public function image(Wallpaper $wallpaper, ?CompositionProposal $proposal = null): array
     {
         $details = $proposal ?? $wallpaper;
+        $symbolism = $this->imageSymbolism($details->symbolism);
         $prompt = implode("\n\n", [
             'スマートフォン用の縦長壁紙を1枚制作してください。画像内には文字、数字、ロゴ、署名、透かしを一切入れないでください。',
             '構図名: '.$details->title,
@@ -149,8 +150,8 @@ PROMPT;
             '概要: '.$details->overview,
             '配置: '.$details->composition,
             '九宮構図: '.(Wallpaper::COMPOSITION_ZONE_LABELS[$details->composition_zone] ?? '未分類'),
-            '色彩・五行: '.$details->color_wu_xing,
-            '象徴意図: '.$details->symbolism,
+            '色彩: '.$details->color_wu_xing,
+            ...($symbolism === '' ? [] : ['補足描写: '.$symbolism]),
             '視認性: ロック画面の時計やアイコンが重なる上部と下部は情報量を抑え、主要モチーフは安全領域に配置する。',
         ]);
 
@@ -163,6 +164,38 @@ PROMPT;
             ),
             'filename' => 'wallpaper-image-'.$wallpaper->target_date->format('Y-m-d').'.txt',
         ];
+    }
+
+    private function imageSymbolism(?string $symbolism): string
+    {
+        // Legacy symbolism can contain drawing instructions absent from the other fields.
+        $analysisPattern = '/
+            当選|高額|金額|購入口数|購入(?:額|金額|数|口数)|実績|統計|確率|相関|因果|母数|標本|サンプル
+            |(?:過去|直近|累計|対象)\s*[0-9０-９,，]+\s*件
+            |\b(?:VND|JPY|USD|EUR|prize|winnings|odds|statistics|correlation)\b
+            |[₫$€¥￥]
+            |[0-9０-９〇零一二三四五六七八九十百千万億兆,，.．]+\s*(?:円|ドン|ドル|ユーロ)
+        /iux';
+        $sentences = preg_split('/(?<=[。！？!?])|(?<=\.)\s+|\R+/u', $symbolism ?? '', flags: PREG_SPLIT_NO_EMPTY) ?: [];
+        $descriptions = [];
+
+        foreach ($sentences as $sentence) {
+            if (preg_match($analysisPattern, $sentence) === 1) {
+                // Split mixed sentences at clause boundaries, keeping commas within amounts intact.
+                $clauses = preg_split('/(?<=[、；;])\s*|(?<=,)(?!\s*[0-9０-９])\s*/u', $sentence) ?: [];
+                $sentence = implode('', array_filter(
+                    $clauses,
+                    fn (string $clause): bool => preg_match($analysisPattern, $clause) === 0,
+                ));
+                $sentence = preg_replace('/[、,；;]\s*$/u', '。', $sentence) ?? '';
+            }
+
+            if (trim($sentence) !== '') {
+                $descriptions[] = trim($sentence);
+            }
+        }
+
+        return implode("\n", $descriptions);
     }
 
     public function parseProposal(string $json): array
@@ -270,6 +303,10 @@ historical_analysis_markdown の傾向、反例、注意点、活用指針を構
 過去実績を参照しつつ、未知の構図やモチーフも探索してください。
 暦情報は入力された値だけを使い、欠損値を推測で補ってはいけません。
 同日の却下案と実質的に同じ提案をしてはいけません。
+title、art_style、overview、composition、color_wu_xingは画像作成に使用するため、被写体、配置、色彩、質感、光、画風など描画に必要な情報だけを書いてください。
+具体的な金額・通貨・購入口数、過去実績の件数・割合・比較、当選確率、分析上の注意書き、採用理由、暦や五行の解釈は画像作成に不要なので、これらの項目には含めずsymbolismにまとめてください。
+color_wu_xingには実際に描く色・配色・素材の見え方を書き、五行を選んだ理由はsymbolismに書いてください。
+symbolismは説明用です。象徴を表現するために必要なモチーフや視覚的特徴はsymbolismだけに書かず、overview、composition、color_wu_xingにも具体的に記述してください。
 titleとart_styleはそれぞれ255文字以内にしてください。
 結論は「構図名 × 画風」の1行にしてください。
 PROMPT;

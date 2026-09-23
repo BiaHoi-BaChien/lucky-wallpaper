@@ -451,6 +451,55 @@ class ManualWallpaperWorkflowTest extends TestCase
         Queue::assertNothingPushed();
     }
 
+    public function test_manual_image_prompt_keeps_visual_details_without_symbolic_analysis(): void
+    {
+        Http::preventStrayRequests();
+        $user = User::factory()->create();
+        $details = [
+            ...$this->proposalPayload('柳とハクセキレイ'),
+            'overview' => '水辺で羽ばたくハクセキレイを写す。',
+            'composition' => '鳥を右側に置き、三枚の柳葉と細い枝を添える。',
+            'composition_zone' => 'right',
+            'color_wu_xing' => '白い羽と淡い金色の光、柔らかな緑の柳。',
+            'symbolism' => '背景には朝霧を薄く漂わせる。過去447件では斜め・上向きの記述が高額側にやや多かった。'
+                .'9月22日は10,000 VND・333.33 VND／口だった。'
+                .'写真表現の高額割合27.1%は全体とほぼ同じ。'
+                .'当選額や当選確率の向上は主張しない。',
+        ];
+        $wallpaper = Wallpaper::factory()->create($details);
+        $proposal = $wallpaper->proposals()->create([
+            ...$details,
+            'title' => '選択した構図案',
+            'sequence' => 1,
+            'status' => 'proposed',
+            'input_hash' => str_repeat('a', 64),
+        ]);
+
+        foreach (['' => $wallpaper->title, '?proposal_id='.$proposal->id => $proposal->title] as $query => $title) {
+            $prompt = $this->actingAs($user)
+                ->getJson("/wallpapers/{$wallpaper->id}/image/manual-prompt{$query}")
+                ->assertOk()
+                ->json('prompt');
+
+            $this->assertStringContainsString('構図名: '.$title, $prompt);
+            foreach (['art_style', 'overview', 'composition', 'color_wu_xing'] as $field) {
+                $this->assertStringContainsString($details[$field], $prompt);
+            }
+            $this->assertStringContainsString('九宮構図: 右', $prompt);
+            $this->assertStringContainsString('背景には朝霧を薄く漂わせる。', $prompt);
+            $this->assertStringContainsString('画像内には文字、数字、ロゴ、署名、透かしを一切入れない', $prompt);
+            $this->assertStringContainsString('主要モチーフは安全領域に配置する', $prompt);
+            foreach (['象徴意図', '447件', '10,000', '333.33', 'VND', '27.1%', '当選確率'] as $excluded) {
+                $this->assertStringNotContainsString($excluded, $prompt);
+            }
+        }
+
+        $this->assertSame($details['symbolism'], $wallpaper->refresh()->symbolism);
+        $this->assertSame($details['symbolism'], $proposal->refresh()->symbolism);
+        $this->assertDatabaseCount('api_runs', 0);
+        Http::assertNothingSent();
+    }
+
     public function test_manual_image_is_stored_without_loading_prompt_or_using_api(): void
     {
         Queue::fake();

@@ -487,7 +487,7 @@ class WallpaperWorkflowTest extends TestCase
             'overview' => '保存済みの概要',
             'composition' => '保存済みの配置',
             'color_wu_xing' => '保存済みの色彩',
-            'symbolism' => '保存済みの象徴意図',
+            'symbolism' => '三枚の柳葉と細い止まり枝を添える。過去の当選額は5,000,000 VND。高額割合は27.1%。当選確率の向上は主張しない。',
             'image_disk' => null,
             'image_path' => null,
         ]);
@@ -506,7 +506,13 @@ class WallpaperWorkflowTest extends TestCase
                 Mockery::on(fn (ApiRun $actual): bool => $actual->is($run)),
                 Mockery::on(fn (string $prompt): bool => str_contains($prompt, '構図名: 保存済みの構図名')
                     && str_contains($prompt, '画風: 保存済みの画風')
-                    && str_contains($prompt, '配置: 保存済みの配置')),
+                    && str_contains($prompt, '配置: 保存済みの配置')
+                    && str_contains($prompt, '保存済みの色彩')
+                    && str_contains($prompt, '三枚の柳葉と細い止まり枝を添える。')
+                    && ! str_contains($prompt, '象徴意図')
+                    && ! str_contains($prompt, 'VND')
+                    && ! str_contains($prompt, '27.1%')
+                    && ! str_contains($prompt, '当選確率')),
             )
             ->andReturn('generated-image-bytes');
         $images = Mockery::mock(ImageService::class);

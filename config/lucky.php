@@ -20,7 +20,7 @@ return [
     ],
     'openai' => [
         'api_key' => env('OPENAI_API_KEY'),
-        'text_model' => env('OPENAI_TEXT_MODEL', 'gpt-5.6-terra'),
+        'text_model' => env('OPENAI_TEXT_MODEL', 'gpt-6-sol'),
         'image_model' => env('OPENAI_IMAGE_MODEL', 'gpt-image-2'),
         'reasoning_effort' => env('OPENAI_REASONING_EFFORT', 'medium'),
         'prompt_version' => env('OPENAI_PROMPT_VERSION', 'v1'),
