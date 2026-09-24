@@ -121,6 +121,51 @@ class WallpaperWorkflowTest extends TestCase
                 ->where('nextWallpaperId', $next->id));
     }
 
+    public function test_wallpaper_html_is_not_cached_for_browser_restoration(): void
+    {
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create();
+
+        $this->actingAs($user)->get("/wallpapers/{$wallpaper->id}")
+            ->assertOk()
+            ->assertHeader('Content-Type', 'text/html; charset=UTF-8')
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertHeader('Vary', 'X-Inertia')
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('wallpapers/show', false)
+                ->where('wallpaper.id', $wallpaper->id));
+    }
+
+    public function test_wallpaper_inertia_json_is_not_cached_and_a_reload_returns_html(): void
+    {
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create();
+        $url = "/wallpapers/{$wallpaper->id}";
+        $html = $this->actingAs($user)->get($url)->assertOk();
+
+        $this->get($url, [
+            'X-Inertia' => 'true',
+            'X-Inertia-Version' => $html->viewData('page')['version'] ?? '',
+        ])
+            ->assertOk()
+            ->assertHeader('Content-Type', 'application/json')
+            ->assertHeader('X-Inertia', 'true')
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertHeader('Vary', 'X-Inertia')
+            ->assertJsonPath('component', 'wallpapers/show')
+            ->assertJsonPath('props.wallpaper.id', $wallpaper->id);
+
+        $this->get($url)
+            ->assertOk()
+            ->assertHeader('Content-Type', 'text/html; charset=UTF-8')
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertHeader('Vary', 'X-Inertia')
+            ->assertHeaderMissing('X-Inertia')
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('wallpapers/show', false)
+                ->where('wallpaper.id', $wallpaper->id));
+    }
+
     public function test_vnd_must_be_non_negative_integer_and_zero_is_valid(): void
     {
         config(['lucky.notion.token' => 'test']);
@@ -247,6 +292,7 @@ class WallpaperWorkflowTest extends TestCase
             ->get("/wallpapers/{$wallpaper->id}/preview")
             ->assertOk()
             ->assertHeader('content-type', 'image/jpeg')
+            ->assertHeader('Cache-Control', 'max-age=300, private')
             ->assertHeader('content-disposition', 'inline; filename='.$wallpaper->target_date->format('Y-m-d').'-lucky-wallpaper.jpg');
         $this->assertSame('image-bytes', $response->streamedContent());
 

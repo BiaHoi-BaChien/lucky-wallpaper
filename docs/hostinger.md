@@ -111,6 +111,20 @@ for protected_path in .env composer.json public/index.php vendor/autoload.php st
 done
 ```
 
+### 画面復帰時のキャッシュ確認
+
+Inertiaは同じ画面URLから、通常アクセスにはHTML、`X-Inertia: true`付きの画面更新通信にはJSONを返します。スマホで別アプリから戻った際にJSONがそのまま表示されることを防ぐため、HTMLとInertiaのJSON応答には`Cache-Control: private, no-store`を設定しています。画像プレビューのキャッシュ設定は別に管理します。
+
+反映後は、ブラウザの開発者ツールで壁紙詳細画面への通常アクセスと画面更新通信を確認してください。
+
+- 両方の応答の`Cache-Control`に`private`と`no-store`が含まれること
+- 両方の応答の`Vary`に`X-Inertia`が含まれること
+- 通常アクセスは`Content-Type: text/html`、画面更新通信は`Content-Type: application/json`と`X-Inertia: true`を返すこと
+
+Laravel側で設定していても公開URLの応答にこれらのヘッダーがない場合は、Hostinger/CDN側のヘッダー変更・キャッシュ設定を確認します。アプリ側のテストだけではCDN通過後の応答は検証できません。
+
+Android・Chromeでは反映後に一度ページを再読み込みし、「画像作成プロンプトを表示 → コピー → ChatGPTアプリへ切り替え → Chromeへ戻る → 画像を登録」の操作を確認します。画像作成の間、Chromeをバックグラウンドに置いた場合も確認してください。
+
 ## cron
 
 hPanelには毎分1本だけ登録します。
