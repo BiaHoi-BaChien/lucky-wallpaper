@@ -3,9 +3,11 @@
 namespace App\Http\Middleware;
 
 use App\Services\NotionClient;
+use Closure;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
+use Symfony\Component\HttpFoundation\Response;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -17,6 +19,19 @@ class HandleInertiaRequests extends Middleware
      * @var string
      */
     protected $rootView = 'app';
+
+    public function handle(Request $request, Closure $next): Response
+    {
+        $response = parent::handle($request, $next);
+
+        if ($response->headers->has('X-Inertia')
+            || str_starts_with((string) $response->headers->get('Content-Type'), 'text/html')) {
+            // Prevent mobile tab restoration from displaying cached Inertia JSON as a page.
+            $response->headers->set('Cache-Control', 'private, no-store');
+        }
+
+        return $response;
+    }
 
     /**
      * Determines the current asset version.
