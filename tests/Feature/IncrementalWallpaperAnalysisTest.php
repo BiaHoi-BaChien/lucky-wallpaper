@@ -34,10 +34,10 @@ class IncrementalWallpaperAnalysisTest extends TestCase
         $old = Wallpaper::factory()->create(['prize_vnd' => 1000, 'title' => '分析済み原文']);
         $base = $this->saveBaseline();
         $new = Wallpaper::factory()->create(['prize_vnd' => 2000]);
-        $prompt = $this->getJson('/wallpaper-analyses/manual-prompt')->assertOk()->json();
-        $data = $this->getJson('/wallpaper-analyses/manual-data?'.http_build_query([
+        $prompt = $this->postJson('/wallpaper-analyses/manual-prompt')->assertOk()->json();
+        $data = $this->postJson('/wallpaper-analyses/manual-data', [
             'prompt_date' => $prompt['prompt_date'], 'prompt_hash' => $prompt['prompt_hash'],
-        ]))->assertOk()->json();
+        ])->assertOk()->json();
 
         $this->assertSame('incremental', $data['analysis_mode']);
         $this->assertSame($base->summary, $data['previous_analysis']);
@@ -88,8 +88,8 @@ class IncrementalWallpaperAnalysisTest extends TestCase
         $base = $this->saveBaseline();
         $record->update(['composition' => '修正された構図']);
 
-        $this->getJson('/wallpaper-analyses/manual-prompt')->assertUnprocessable()->assertJsonValidationErrors('full_confirmed');
-        $this->getJson('/wallpaper-analyses/manual-data?prompt_date=2026-10-06')->assertUnprocessable()->assertJsonValidationErrors('full_confirmed');
+        $this->postJson('/wallpaper-analyses/manual-prompt')->assertUnprocessable()->assertJsonValidationErrors('full_confirmed');
+        $this->postJson('/wallpaper-analyses/manual-data', ['prompt_date' => '2026-10-06'])->assertUnprocessable()->assertJsonValidationErrors('full_confirmed');
         $this->post('/wallpaper-analyses', ['api_confirmed' => true])->assertSessionHasErrors('full_confirmed');
         $this->post('/wallpaper-analyses/manual-result', [
             'analysis_markdown' => '# 無許可', 'prompt_hash' => str_repeat('a', 64), 'prompt_date' => '2026-10-06',
@@ -98,7 +98,7 @@ class IncrementalWallpaperAnalysisTest extends TestCase
         $this->assertSame('# 前回の分析', $base->refresh()->summary);
 
         $record->delete();
-        $this->getJson('/wallpaper-analyses/manual-prompt')->assertJsonValidationErrors('full_confirmed');
+        $this->postJson('/wallpaper-analyses/manual-prompt')->assertJsonValidationErrors('full_confirmed');
         $this->post('/wallpaper-analyses', ['api_confirmed' => true, 'full_confirmed' => true])->assertSessionHasNoErrors();
         Queue::assertPushed(GenerateHistoricalAnalysis::class, fn (GenerateHistoricalAnalysis $job): bool => $job->fullConfirmed);
     }
@@ -109,11 +109,11 @@ class IncrementalWallpaperAnalysisTest extends TestCase
         $base = $this->saveBaseline();
         $base->update(['statistics' => ['records' => 1]]);
         Wallpaper::factory()->create(['prize_vnd' => 2000]);
-        $this->getJson('/wallpaper-analyses/manual-prompt')->assertJsonValidationErrors('full_confirmed');
-        $this->getJson('/wallpaper-analyses/manual-prompt?full_confirmed=1')->assertOk();
+        $this->postJson('/wallpaper-analyses/manual-prompt')->assertJsonValidationErrors('full_confirmed');
+        $this->postJson('/wallpaper-analyses/manual-prompt', ['full_confirmed' => true])->assertOk();
 
         config(['lucky.openai.prompt_version' => 'v2']);
-        $this->getJson('/wallpaper-analyses/manual-prompt')->assertJsonValidationErrors('full_confirmed');
+        $this->postJson('/wallpaper-analyses/manual-prompt')->assertJsonValidationErrors('full_confirmed');
     }
 
     public function test_unchanged_history_skips_the_api_and_reuses_the_saved_result(): void
@@ -176,7 +176,7 @@ class IncrementalWallpaperAnalysisTest extends TestCase
         Wallpaper::factory()->create(['prize_vnd' => 1000]);
         $base = $this->saveBaseline();
         $base->update(['status' => 'invalidated']);
-        $prompt = $this->getJson('/wallpaper-analyses/manual-prompt')->assertOk()->json();
+        $prompt = $this->postJson('/wallpaper-analyses/manual-prompt')->assertOk()->json();
         $this->post('/wallpaper-analyses/manual-result', [
             'prompt_date' => $prompt['prompt_date'], 'prompt_hash' => $prompt['prompt_hash'],
             'analysis_markdown' => $prompt['default_result'],
@@ -263,16 +263,16 @@ class IncrementalWallpaperAnalysisTest extends TestCase
         $this->get('/wallpaper-analyses')->assertInertia(fn (AssertableInertia $page) => $page
             ->where('analysisPlan.proposal', $proposal));
         Queue::assertNothingPushed();
-        $this->getJson('/wallpaper-analyses/manual-prompt?'.http_build_query(['perspective' => $proposal]))
+        $this->postJson('/wallpaper-analyses/manual-prompt', ['perspective' => $proposal])
             ->assertJsonValidationErrors('full_confirmed');
         $this->post('/wallpaper-analyses', ['api_confirmed' => true, 'perspective' => $proposal])
             ->assertSessionHasErrors('full_confirmed');
 
         $options = ['full_confirmed' => 1, 'perspective' => $proposal];
-        $prompt = $this->getJson('/wallpaper-analyses/manual-prompt?'.http_build_query($options))->assertOk()->json();
-        $data = $this->getJson('/wallpaper-analyses/manual-data?'.http_build_query($options + [
+        $prompt = $this->postJson('/wallpaper-analyses/manual-prompt', $options)->assertOk()->json();
+        $data = $this->postJson('/wallpaper-analyses/manual-data', $options + [
             'prompt_date' => $prompt['prompt_date'], 'prompt_hash' => $prompt['prompt_hash'],
-        ]))->assertOk()->json();
+        ])->assertOk()->json();
         $this->assertSame('full', $data['analysis_mode']);
         $this->assertSame($proposal, $data['approved_perspective']);
         $this->assertCount(1, $data['records']);
@@ -289,10 +289,10 @@ class IncrementalWallpaperAnalysisTest extends TestCase
         Wallpaper::factory()->create(['prize_vnd' => 1000]);
         $base = $this->saveBaseline();
         Wallpaper::factory()->create(['prize_vnd' => 2000]);
-        $prompt = $this->getJson('/wallpaper-analyses/manual-prompt')->json();
+        $prompt = $this->postJson('/wallpaper-analyses/manual-prompt')->json();
         $base->update(['summary' => '# 別の分析に更新']);
         $options = ['prompt_date' => $prompt['prompt_date'], 'prompt_hash' => $prompt['prompt_hash']];
-        $this->getJson('/wallpaper-analyses/manual-data?'.http_build_query($options))->assertJsonValidationErrors('prompt_hash');
+        $this->postJson('/wallpaper-analyses/manual-data', $options)->assertJsonValidationErrors('prompt_hash');
         $this->post('/wallpaper-analyses/manual-result', $options + ['analysis_markdown' => '# 古い前回結果に基づく分析'])
             ->assertSessionHasErrors('analysis_markdown');
         $this->assertDatabaseCount('analysis_snapshots', 1);

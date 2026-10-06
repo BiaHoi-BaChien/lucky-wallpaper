@@ -35,7 +35,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         ]);
 
         $prompt = $this->actingAs($user)
-            ->getJson('/wallpaper-analyses/manual-prompt')
+            ->postJson('/wallpaper-analyses/manual-prompt')
             ->assertOk()
             ->assertJsonStructure(['prompt', 'prompt_hash', 'filename', 'data_filename', 'prompt_date'])
             ->json();
@@ -74,7 +74,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertSame('chatgpt-manual', $snapshot->model);
         $this->assertStringContainsString('初回分析', $snapshot->summary);
 
-        $prompt = $this->getJson('/wallpaper-analyses/manual-prompt?full_confirmed=1')->assertOk()->json();
+        $prompt = $this->postJson('/wallpaper-analyses/manual-prompt', ['full_confirmed' => true])->assertOk()->json();
         $this->actingAs($user)
             ->post('/wallpaper-analyses/manual-result', [
                 'analysis_markdown' => "## 再分析\n\n- 左右非対称",
@@ -93,7 +93,7 @@ class ManualWallpaperWorkflowTest extends TestCase
 
     public function test_manual_analysis_data_download_requires_authentication(): void
     {
-        $this->get('/wallpaper-analyses/manual-data')
+        $this->post('/wallpaper-analyses/manual-data')
             ->assertRedirect('/login');
     }
 
@@ -102,7 +102,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         $user = User::factory()->create();
 
         $this->actingAs($user)
-            ->getJson('/wallpaper-analyses/manual-data?prompt_date=invalid')
+            ->postJson('/wallpaper-analyses/manual-data', ['prompt_date' => 'invalid'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('prompt_date');
     }
@@ -141,9 +141,9 @@ class ManualWallpaperWorkflowTest extends TestCase
             'purchase_count' => null,
             'title' => '口数不明',
         ]);
-        $prompt = $this->actingAs($user)->getJson('/wallpaper-analyses/manual-prompt')->json();
+        $prompt = $this->actingAs($user)->postJson('/wallpaper-analyses/manual-prompt')->json();
 
-        $response = $this->get('/wallpaper-analyses/manual-data?prompt_date='.$prompt['prompt_date'])
+        $response = $this->post('/wallpaper-analyses/manual-data', ['prompt_date' => $prompt['prompt_date']])
             ->assertOk()
             ->assertHeader('Cache-Control', 'no-store, private')
             ->assertHeader('Content-Disposition', 'attachment; filename="wallpaper-analysis-data-2026-08-07.json"')
@@ -177,10 +177,10 @@ class ManualWallpaperWorkflowTest extends TestCase
         Queue::fake();
         $user = User::factory()->create();
         Wallpaper::factory()->create(['prize_vnd' => 1_000_000]);
-        $prompt = $this->actingAs($user)->getJson('/wallpaper-analyses/manual-prompt')->json();
+        $prompt = $this->actingAs($user)->postJson('/wallpaper-analyses/manual-prompt')->json();
         $this->travelTo('2026-08-08 12:00:00');
 
-        $this->get('/wallpaper-analyses/manual-data?prompt_date='.$prompt['prompt_date'])
+        $this->post('/wallpaper-analyses/manual-data', ['prompt_date' => $prompt['prompt_date']])
             ->assertOk()
             ->assertHeader('Content-Disposition', 'attachment; filename="wallpaper-analysis-data-2026-08-07.json"');
 
@@ -196,7 +196,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         Queue::fake();
         $user = User::factory()->create();
         $wallpaper = Wallpaper::factory()->create(['prize_vnd' => 1_000_000]);
-        $prompt = $this->actingAs($user)->getJson('/wallpaper-analyses/manual-prompt')->json();
+        $prompt = $this->actingAs($user)->postJson('/wallpaper-analyses/manual-prompt')->json();
         $wallpaper->update(['prize_vnd' => 2_000_000]);
 
         $this->actingAs($user)
@@ -217,7 +217,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         Http::preventStrayRequests();
         $user = User::factory()->create();
         $prompt = $this->actingAs($user)
-            ->getJson('/wallpaper-analyses/manual-prompt')
+            ->postJson('/wallpaper-analyses/manual-prompt')
             ->assertOk()
             ->assertJsonPath('default_result', fn (string $value): bool => str_contains($value, '壁紙履歴はまだありません'))
             ->json();

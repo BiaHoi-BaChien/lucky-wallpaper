@@ -24,9 +24,9 @@ Route::middleware(['auth'])->group(function () {
 
     Route::get('wallpapers/create', [WallpaperController::class, 'create'])->name('wallpapers.create');
     Route::get('wallpaper-analyses', [WallpaperAnalysisController::class, 'index'])->name('wallpaper-analyses.index');
-    Route::get('wallpaper-analyses/manual-prompt', [WallpaperAnalysisController::class, 'prompt'])
+    Route::post('wallpaper-analyses/manual-prompt', [WallpaperAnalysisController::class, 'prompt'])
         ->name('wallpaper-analyses.manual-prompt');
-    Route::get('wallpaper-analyses/manual-data', [WallpaperAnalysisController::class, 'data'])
+    Route::post('wallpaper-analyses/manual-data', [WallpaperAnalysisController::class, 'data'])
         ->name('wallpaper-analyses.manual-data');
     Route::post('wallpaper-analyses/manual-result', [WallpaperAnalysisController::class, 'storeManual'])
         ->name('wallpaper-analyses.manual-result');
