@@ -57,7 +57,9 @@ class ImageService
 
         $path = trim((string) config('lucky.image.directory'), '/').'/'.Str::uuid().'.jpg';
         $disk = (string) config('lucky.image.disk');
-        Storage::disk($disk)->put($path, $bytes);
+        if (! Storage::disk($disk)->put($path, $bytes)) {
+            throw new ExternalApiException('image_storage_failed', false);
+        }
 
         return [
             'disk' => $disk,

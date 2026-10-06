@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Jobs\GenerateCompositionProposal;
+use App\Exceptions\ExternalApiException;
 use App\Jobs\GenerateHistoricalAnalysis;
 use App\Jobs\GenerateWallpaperImage;
 use App\Models\AnalysisSnapshot;
@@ -10,6 +10,7 @@ use App\Models\ApiRun;
 use App\Models\User;
 use App\Models\Wallpaper;
 use App\Services\HistoricalAnalysisService;
+use App\Services\WallpaperPromptService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -234,10 +235,11 @@ class ManualWallpaperWorkflowTest extends TestCase
         Queue::assertNothingPushed();
     }
 
-    public function test_manual_initial_proposal_without_analysis_accepts_fenced_json_without_api_usage(): void
+    public function test_manual_wallpaper_without_analysis_registers_fenced_json_and_image_without_api_usage(): void
     {
         Queue::fake();
         Http::preventStrayRequests();
+        Storage::fake('local');
         $user = User::factory()->create();
         $prompt = $this->actingAs($user)
             ->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-08-10')
@@ -247,6 +249,12 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertStringNotContainsString('moon_age', $prompt['prompt']);
         $this->assertStringContainsString('回答と同じ内容をUTF-8のJSONファイル', $prompt['prompt']);
         $this->assertStringContainsString('wallpaper-composition-2026-08-10.json', $prompt['prompt']);
+        $this->assertStringContainsString('構図の説明JSONと、その内容に一致する壁紙画像を同じ回答で作成', $prompt['prompt']);
+        $this->assertStringContainsString('画像内には文字、数字、ロゴ、署名、透かしを一切入れない', $prompt['prompt']);
+        $this->assertStringContainsString('主要モチーフは安全領域に配置', $prompt['prompt']);
+        $this->assertStringContainsString('1440×2560px', $prompt['prompt']);
+        $this->assertStringNotContainsString('JSONオブジェクトだけにしてください', $prompt['prompt']);
+        $this->assertSame('wallpaper-creation-2026-08-10.txt', $prompt['filename']);
         $json = "```json\n".json_encode($this->proposalPayload('手動の黄金庭園'), JSON_UNESCAPED_UNICODE)."\n```";
 
         $this->actingAs($user)
@@ -254,6 +262,7 @@ class ManualWallpaperWorkflowTest extends TestCase
                 'target_date' => '2026-08-10',
                 'proposal_json' => $json,
                 'prompt_hash' => $prompt['prompt_hash'],
+                'image' => UploadedFile::fake()->image('wallpaper.png', 90, 160),
             ])
             ->assertRedirect('/wallpapers/1')
             ->assertSessionHasNoErrors();
@@ -262,22 +271,32 @@ class ManualWallpaperWorkflowTest extends TestCase
             'target_date' => '2026-08-10',
             'title' => '手動の黄金庭園',
             'composition_zone' => 'center',
-            'state' => 'proposed',
+            'state' => 'generated',
         ]);
         $this->assertDatabaseHas('composition_proposals', [
             'title' => '手動の黄金庭園',
             'composition_zone' => 'center',
             'sequence' => 1,
-            'status' => 'proposed',
+            'status' => 'approved',
         ]);
+        $wallpaper = Wallpaper::query()->sole();
+        $this->assertSame($wallpaper->proposals()->sole()->id, $wallpaper->chosen_proposal_id);
+        Storage::disk('local')->assertExists($wallpaper->image_path);
+        $bytes = Storage::disk('local')->get($wallpaper->image_path);
+        $size = getimagesizefromstring($bytes);
+        $this->assertSame([1440, 2560], [$size[0], $size[1]]);
+        $this->assertSame('image/jpeg', $wallpaper->image_mime);
+        $this->assertSame(hash('sha256', $bytes), $wallpaper->image_sha256);
         $this->assertDatabaseCount('api_runs', 0);
-        Queue::assertNotPushed(GenerateCompositionProposal::class);
+        Http::assertNothingSent();
+        Queue::assertNothingPushed();
     }
 
     public function test_manual_initial_proposal_can_use_outdated_analysis(): void
     {
         Queue::fake();
         Http::preventStrayRequests();
+        Storage::fake('local');
         $user = User::factory()->create();
         $history = Wallpaper::factory()->create([
             'target_date' => '2026-07-01',
@@ -298,6 +317,7 @@ class ManualWallpaperWorkflowTest extends TestCase
             'target_date' => '2026-08-10',
             'proposal_json' => json_encode($this->proposalPayload('過去分析からの案'), JSON_UNESCAPED_UNICODE),
             'prompt_hash' => $prompt['prompt_hash'],
+            'image' => UploadedFile::fake()->image('wallpaper.png', 90, 160),
         ])->assertRedirect()->assertSessionHasNoErrors();
 
         $this->assertDatabaseHas('composition_proposals', [
@@ -307,6 +327,130 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertDatabaseCount('api_runs', 0);
         Http::assertNothingSent();
         Queue::assertNothingPushed();
+    }
+
+    public function test_manual_wallpaper_requires_a_valid_image_before_saving_json(): void
+    {
+        Storage::fake('local');
+        $user = User::factory()->create();
+        $prompt = $this->actingAs($user)
+            ->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-08-10')
+            ->assertOk()->json();
+
+        foreach ([null, UploadedFile::fake()->create('invalid.txt', 1, 'text/plain'), UploadedFile::fake()->image('large.png')->size(20481)] as $image) {
+            $this->post('/wallpapers/proposals/manual-result', [
+                'target_date' => '2026-08-10',
+                'proposal_json' => json_encode($this->proposalPayload('画像必須')),
+                'prompt_hash' => $prompt['prompt_hash'],
+                'image' => $image,
+            ])->assertSessionHasErrors('image');
+        }
+
+        $this->assertDatabaseCount('wallpapers', 0);
+        $this->assertDatabaseCount('composition_proposals', 0);
+        $this->assertSame([], Storage::disk('local')->allFiles());
+    }
+
+    public function test_manual_wallpaper_rejects_changed_context_without_saving_files(): void
+    {
+        Storage::fake('local');
+        $user = User::factory()->create();
+        $prompt = $this->actingAs($user)
+            ->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-08-10')
+            ->assertOk()->json();
+        Wallpaper::factory()->create(['target_date' => '2026-08-09', 'art_style' => '水彩画']);
+
+        $this->post('/wallpapers/proposals/manual-result', [
+            'target_date' => '2026-08-10',
+            'proposal_json' => json_encode($this->proposalPayload('古い入力')),
+            'prompt_hash' => $prompt['prompt_hash'],
+            'image' => UploadedFile::fake()->image('wallpaper.png', 90, 160),
+        ])->assertSessionHasErrors('proposal_json');
+
+        $this->assertDatabaseCount('wallpapers', 1);
+        $this->assertDatabaseCount('composition_proposals', 0);
+        $this->assertSame([], Storage::disk('local')->allFiles());
+    }
+
+    public function test_manual_wallpaper_rejects_duplicate_date_and_cleans_up_new_image(): void
+    {
+        Storage::fake('local');
+        $user = User::factory()->create();
+        $prompt = $this->actingAs($user)
+            ->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-08-10')
+            ->assertOk()->json();
+        $existing = Wallpaper::query()->create([
+            'target_date' => '2026-08-10',
+            'state' => 'generated',
+            'image_disk' => 'local',
+            'image_path' => 'wallpapers/existing.jpg',
+        ]);
+        Storage::disk('local')->put('wallpapers/existing.jpg', 'existing image');
+
+        $this->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-08-10')
+            ->assertUnprocessable()->assertJsonValidationErrors('target_date');
+        $this->post('/wallpapers/proposals/manual-result', [
+            'target_date' => '2026-08-10',
+            'proposal_json' => json_encode($this->proposalPayload('重複登録')),
+            'prompt_hash' => $prompt['prompt_hash'],
+            'image' => UploadedFile::fake()->image('wallpaper.png', 90, 160),
+        ])->assertSessionHasErrors('target_date');
+
+        $this->assertDatabaseCount('wallpapers', 1);
+        $this->assertDatabaseCount('composition_proposals', 0);
+        $this->assertNull($existing->refresh()->title);
+        $this->assertSame(['wallpapers/existing.jpg'], Storage::disk('local')->allFiles());
+        $this->assertSame('existing image', Storage::disk('local')->get($existing->image_path));
+    }
+
+    public function test_manual_wallpaper_image_processing_failure_leaves_no_partial_result(): void
+    {
+        Storage::fake('local');
+        config(['lucky.image.max_source_width' => 10]);
+        $user = User::factory()->create();
+        $prompt = $this->actingAs($user)
+            ->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-08-10')
+            ->assertOk()->json();
+
+        $this->post('/wallpapers/proposals/manual-result', [
+            'target_date' => '2026-08-10',
+            'proposal_json' => json_encode($this->proposalPayload('画像処理失敗')),
+            'prompt_hash' => $prompt['prompt_hash'],
+            'image' => UploadedFile::fake()->image('wallpaper.png', 90, 160),
+        ])->assertSessionHasErrors('image');
+
+        $this->assertDatabaseCount('wallpapers', 0);
+        $this->assertDatabaseCount('composition_proposals', 0);
+        $this->assertSame([], Storage::disk('local')->allFiles());
+    }
+
+    public function test_manual_wallpaper_rolls_back_json_and_image_when_context_changes_during_save(): void
+    {
+        Storage::fake('local');
+        $user = User::factory()->create();
+        $prompt = $this->actingAs($user)
+            ->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-08-10')
+            ->assertOk()->json();
+        $prompts = app(WallpaperPromptService::class);
+        $this->partialMock(WallpaperPromptService::class, function ($mock) use ($prompts): void {
+            $mock->shouldReceive('composition')->andReturnUsing($prompts->composition(...));
+            $mock->shouldReceive('saveProposal')->once()->andReturnUsing(function (...$arguments) use ($prompts): never {
+                $prompts->saveProposal(...$arguments);
+
+                throw new ExternalApiException('composition_prompt_stale', false);
+            });
+        });
+
+        $this->post('/wallpapers/proposals/manual-result', [
+            'target_date' => '2026-08-10',
+            'proposal_json' => json_encode($this->proposalPayload('保存中の失敗')),
+            'prompt_hash' => $prompt['prompt_hash'],
+            'image' => UploadedFile::fake()->image('wallpaper.png', 90, 160),
+        ])->assertSessionHasErrors('proposal_json');
+
+        $this->assertDatabaseCount('wallpapers', 0);
+        $this->assertDatabaseCount('composition_proposals', 0);
+        $this->assertSame([], Storage::disk('local')->allFiles());
     }
 
     public function test_manual_reproposal_still_requires_current_analysis(): void
@@ -386,6 +530,7 @@ class ManualWallpaperWorkflowTest extends TestCase
                 'target_date' => '2026-08-14',
                 'proposal_json' => '{not-json}',
                 'prompt_hash' => $prompt['prompt_hash'],
+                'image' => UploadedFile::fake()->image('wallpaper.png', 90, 160),
             ])
             ->assertSessionHasErrors('proposal_json');
 
@@ -412,6 +557,7 @@ class ManualWallpaperWorkflowTest extends TestCase
                     'target_date' => '2026-08-14',
                     'proposal_json' => json_encode($payload, JSON_UNESCAPED_UNICODE),
                     'prompt_hash' => $prompt['prompt_hash'],
+                    'image' => UploadedFile::fake()->image('wallpaper.png', 90, 160),
                 ])
                 ->assertSessionHasErrors('proposal_json');
         }
@@ -439,6 +585,7 @@ class ManualWallpaperWorkflowTest extends TestCase
                 'target_date' => '2026-08-14',
                 'proposal_json' => json_encode($proposal, JSON_UNESCAPED_UNICODE),
                 'prompt_hash' => $prompt['prompt_hash'],
+                'image' => UploadedFile::fake()->image('wallpaper.png', 90, 160),
             ])
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page

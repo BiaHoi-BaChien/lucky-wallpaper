@@ -71,4 +71,21 @@ class ImageServiceTest extends TestCase
         $this->assertSame(2560, $size[1]);
         $this->assertSame(strlen($saved), $stored['bytes']);
     }
+
+    public function test_storage_failure_does_not_return_a_saved_image(): void
+    {
+        Storage::shouldReceive('disk->put')->once()->andReturn(false);
+        $source = imagecreatetruecolor(20, 30);
+        ob_start();
+        imagepng($source);
+        $bytes = ob_get_clean();
+        imagedestroy($source);
+
+        try {
+            app(ImageService::class)->normalizeAndStore($bytes);
+            $this->fail('Storage failure must reject the image.');
+        } catch (ExternalApiException $exception) {
+            $this->assertSame('image_storage_failed', $exception->errorCode);
+        }
+    }
 }
