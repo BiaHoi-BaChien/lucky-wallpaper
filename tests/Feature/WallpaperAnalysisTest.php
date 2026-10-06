@@ -64,7 +64,7 @@ class WallpaperAnalysisTest extends TestCase
         Queue::assertPushed(GenerateHistoricalAnalysis::class, 1);
     }
 
-    public function test_latest_analysis_is_displayed_on_analysis_page_and_can_be_queued_again(): void
+    public function test_latest_analysis_is_reused_and_full_reanalysis_requires_explicit_confirmation(): void
     {
         Queue::fake();
         $user = User::factory()->create();
@@ -88,6 +88,11 @@ class WallpaperAnalysisTest extends TestCase
         $this->actingAs($user)
             ->post('/wallpaper-analyses', ['api_confirmed' => true])
             ->assertRedirect();
+
+        Queue::assertNothingPushed();
+        $this->actingAs($user)
+            ->post('/wallpaper-analyses', ['api_confirmed' => true, 'full_confirmed' => true])
+            ->assertSessionHasNoErrors();
 
         Queue::assertPushed(
             GenerateHistoricalAnalysis::class,
@@ -214,10 +219,10 @@ class WallpaperAnalysisTest extends TestCase
             ->withArgs(fn (ApiRun $run, string $instructions, string $input, array $schema, string $name): bool => $name === 'wallpaper_analysis_summary'
                 && str_contains($instructions, '本命星（六白金星）を踏まえた補助的な考察')
                 && str_contains($instructions, '実績で見られた傾向と九星に基づく解釈を分け')
-                && json_decode($input, true) === [$partial, $partial])
+                && json_decode($input, true)['partial_analyses'] === [$partial, $partial])
             ->andReturn(['analysis_markdown' => $merged]);
 
-        $result = app(HistoricalAnalysisService::class)->analyze($snapshot);
+        $result = app(HistoricalAnalysisService::class)->analyze($snapshot, fullConfirmed: true);
 
         $this->assertSame($merged, $result->summary);
         $this->assertSame(2, $result->statistics['records']);

@@ -33,8 +33,9 @@ class WallpaperAnalysisController extends Controller
                 ]),
                 'is_latest' => $analysisService->currentSnapshot()?->is($analysis) ?? false,
                 'created_at' => $analysis->updated_at?->toIso8601String(),
-                'statistics' => $analysis->statistics,
+                'statistics' => $analysisService->publicStatistics($analysis->statistics),
             ],
+            'analysisPlan' => $analysisService->planOverview(),
             'latestAnalysisRun' => ApiRun::query()
                 ->where('type', 'historical_analysis')
                 ->latest()
@@ -42,20 +43,32 @@ class WallpaperAnalysisController extends Controller
         ]);
     }
 
-    public function prompt(HistoricalAnalysisService $analysisService): JsonResponse
+    public function prompt(Request $request, HistoricalAnalysisService $analysisService): JsonResponse
     {
-        return response()->json($analysisService->manualPrompt());
+        $this->validateOptions($request);
+
+        return response()->json($analysisService->manualPrompt(
+            fullConfirmed: $request->boolean('full_confirmed'),
+            perspective: (string) $request->input('perspective', ''),
+        ))->header('Cache-Control', 'private, no-store');
     }
 
     public function data(
         Request $request,
         HistoricalAnalysisService $analysisService,
     ): Response {
+        $this->validateOptions($request);
         $validated = $request->validate([
             'prompt_date' => ['required', 'date_format:Y-m-d'],
+            'prompt_hash' => ['nullable', 'string', 'size:64'],
         ]);
 
-        $data = $analysisService->manualData($validated['prompt_date']);
+        $data = $analysisService->manualData(
+            $validated['prompt_date'],
+            $request->boolean('full_confirmed'),
+            (string) $request->input('perspective', ''),
+            $validated['prompt_hash'] ?? null,
+        );
 
         return response($data['content'], 200, [
             'Cache-Control' => 'private, no-store',
@@ -69,6 +82,7 @@ class WallpaperAnalysisController extends Controller
         Request $request,
         HistoricalAnalysisService $analysisService,
     ): RedirectResponse {
+        $this->validateOptions($request);
         $validated = $request->validate([
             'analysis_markdown' => ['nullable', 'string', 'max:1000000'],
             'prompt_hash' => ['required', 'string', 'size:64'],
@@ -89,6 +103,8 @@ class WallpaperAnalysisController extends Controller
                 (string) ($validated['analysis_markdown'] ?? ''),
                 $validated['prompt_hash'],
                 $validated['prompt_date'],
+                $request->boolean('full_confirmed'),
+                (string) $request->input('perspective', ''),
             );
         } catch (ExternalApiException $exception) {
             if ($exception->errorCode === 'historical_analysis_stale_input') {
@@ -107,8 +123,27 @@ class WallpaperAnalysisController extends Controller
         Request $request,
         HistoricalAnalysisService $analysisService,
     ): RedirectResponse {
-        $request->validate(['api_confirmed' => ['accepted']]);
-        $dataHash = $analysisService->currentDataHash();
+        $request->validate(['reuse_only' => ['sometimes', 'boolean']]);
+        $reuseOnly = $request->boolean('reuse_only');
+        if (! $reuseOnly) {
+            $request->validate(['api_confirmed' => ['accepted']]);
+        }
+        $this->validateOptions($request);
+        $fullConfirmed = $request->boolean('full_confirmed');
+        $perspective = (string) $request->input('perspective', '');
+        $plan = $analysisService->plan($fullConfirmed, $perspective);
+        if ($reuseOnly && $plan['mode'] !== 'unchanged') {
+            throw ValidationException::withMessages([
+                'analysis' => '前回の結果を再利用できません。最新の履歴を確認して分析してください。',
+            ]);
+        }
+        $analysisService->assertExecutable($plan);
+        if ($plan['mode'] === 'unchanged') {
+            $plan['base']->update(['status' => 'succeeded']);
+
+            return back()->with('status', '追加・変更されたデータはありません。前回の分析結果を利用します。');
+        }
+        $dataHash = $plan['dataHash'];
         $promptVersion = (string) config('lucky.openai.prompt_version');
 
         [$snapshot, $run, $preserveExistingResult] = DB::transaction(function () use ($dataHash, $promptVersion): array {
@@ -134,7 +169,7 @@ class WallpaperAnalysisController extends Controller
                 ]);
             }
 
-            $preserveExistingResult = $snapshot->status === 'succeeded' && $snapshot->summary !== '';
+            $preserveExistingResult = $snapshot->summary !== '';
             if (! $preserveExistingResult) {
                 $snapshot->update([
                     'model' => config('lucky.openai.text_model'),
@@ -155,8 +190,19 @@ class WallpaperAnalysisController extends Controller
             return [$snapshot, $run, $preserveExistingResult];
         });
 
-        GenerateHistoricalAnalysis::dispatch($snapshot->id, $run->id, $preserveExistingResult);
+        GenerateHistoricalAnalysis::dispatch($snapshot->id, $run->id, $preserveExistingResult, $fullConfirmed, $perspective, $plan['token']);
 
         return back()->with('operationId', $run->id);
+    }
+
+    private function validateOptions(Request $request): void
+    {
+        $request->validate([
+            'full_confirmed' => ['sometimes', 'boolean'],
+            'perspective' => ['nullable', 'string', 'max:2000'],
+        ]);
+        if (! $request->boolean('full_confirmed') && trim((string) $request->input('perspective', '')) !== '') {
+            throw ValidationException::withMessages(['full_confirmed' => '新しい切り口での全件再分析には許可が必要です。']);
+        }
     }
 }

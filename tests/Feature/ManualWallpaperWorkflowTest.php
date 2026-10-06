@@ -73,9 +73,11 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertSame('chatgpt-manual', $snapshot->model);
         $this->assertStringContainsString('初回分析', $snapshot->summary);
 
+        $prompt = $this->getJson('/wallpaper-analyses/manual-prompt?full_confirmed=1')->assertOk()->json();
         $this->actingAs($user)
             ->post('/wallpaper-analyses/manual-result', [
                 'analysis_markdown' => "## 再分析\n\n- 左右非対称",
+                'full_confirmed' => true,
                 'prompt_hash' => $prompt['prompt_hash'],
                 'prompt_date' => $prompt['prompt_date'],
             ])
@@ -188,7 +190,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         ])->assertSessionHasNoErrors();
     }
 
-    public function test_manual_analysis_result_does_not_require_data_hash(): void
+    public function test_manual_analysis_rejects_a_result_when_data_changed_after_prompt_creation(): void
     {
         Queue::fake();
         $user = User::factory()->create();
@@ -202,12 +204,9 @@ class ManualWallpaperWorkflowTest extends TestCase
                 'prompt_hash' => $prompt['prompt_hash'],
                 'prompt_date' => $prompt['prompt_date'],
             ])
-            ->assertSessionHasNoErrors();
+            ->assertSessionHasErrors('analysis_markdown');
 
-        $this->assertSame(
-            app(HistoricalAnalysisService::class)->currentDataHash(),
-            AnalysisSnapshot::query()->sole()->data_hash,
-        );
+        $this->assertDatabaseCount('analysis_snapshots', 0);
         $this->assertDatabaseCount('api_runs', 0);
     }
 
