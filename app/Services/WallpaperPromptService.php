@@ -48,6 +48,7 @@ class WallpaperPromptService
         ?Wallpaper $wallpaper = null,
         bool $reproposal = false,
         bool $allowWithoutCurrentAnalysis = false,
+        bool $includeImage = false,
     ): array {
         $snapshot = $this->analysisService->currentSnapshot();
         if ($snapshot === null) {
@@ -99,13 +100,28 @@ class WallpaperPromptService
             json_decode($input, true, flags: JSON_THROW_ON_ERROR),
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR,
         );
+        $outputInstructions = $includeImage ? <<<PROMPT
+以下の入力データを使って構図を1案だけ決め、その構図の説明JSONと、その内容に一致する壁紙画像を同じ回答で作成してください。
+構図の説明だけで終了せず、画像生成まで実行してください。途中の構図確認は不要です。
+
+出力は次の2点です。
+1. 次のJSON Schemaに一致する構図の説明JSONオブジェクト。JSON部分には説明文やコードフェンス、ファイル名、ダウンロードリンクを混ぜないでください。
+回答と同じ内容をUTF-8のJSONファイル（wallpaper-composition-{$targetDate}.json）としてダウンロードできるようにしてください。
+2. そのJSONのtitle、art_style、overview、composition、composition_zone、color_wu_xingに従ったスマートフォン用の縦長壁紙画像1枚。縦横比は9:16、推奨サイズは1440×2560pxです。
+画像内には文字、数字、ロゴ、署名、透かしを一切入れないでください。
+ロック画面の時計やアイコンが重なる上部と下部は情報量を抑え、主要モチーフは安全領域に配置してください。
+金額・通貨・過去実績・当選確率・分析上の注意書きや採用理由など、symbolismにまとめた説明は画像に描き込まないでください。
+JSONと画像はそれぞれ別のファイルとして保存できるように提供し、JSON本文を画像内に描画しないでください。
+PROMPT : <<<PROMPT
+回答は次のJSON Schemaに一致するJSONオブジェクトだけにしてください。説明文やコードフェンスは付けないでください。
+回答と同じ内容をUTF-8のJSONファイル（wallpaper-composition-{$targetDate}.json）としてダウンロードできるようにしてください。
+JSONファイルは回答本文とは別の添付として提供し、本文には「同内容のJSON: ...」などの案内文、ファイル名、ダウンロードリンク（sandbox:で始まるパスを含む）を追加しないでください。
+PROMPT;
         $prompt = <<<PROMPT
 {$instructions}
 
 以下の入力データを使って構図を1案だけ提案してください。
-回答は次のJSON Schemaに一致するJSONオブジェクトだけにしてください。説明文やコードフェンスは付けないでください。
-回答と同じ内容をUTF-8のJSONファイル（wallpaper-composition-{$targetDate}.json）としてダウンロードできるようにしてください。
-JSONファイルは回答本文とは別の添付として提供し、本文には「同内容のJSON: ...」などの案内文、ファイル名、ダウンロードリンク（sandbox:で始まるパスを含む）を追加しないでください。
+{$outputInstructions}
 
 JSON Schema:
 {$schema}
@@ -125,7 +141,7 @@ PROMPT;
             'prompt' => $prompt,
             'prompt_hash' => hash('sha256', config('lucky.openai.prompt_version').'|'.$prompt),
             'context_hash' => $inputHash,
-            'filename' => 'wallpaper-composition-'.$targetDate.'.txt',
+            'filename' => ($includeImage ? 'wallpaper-creation-' : 'wallpaper-composition-').$targetDate.'.txt',
             'calendar' => $calendar,
             'analysis_hash' => $snapshot?->data_hash,
         ];

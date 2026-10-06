@@ -39,9 +39,9 @@ WALLPAPER_DELETE_AFTER_NOTION_BACKUP=true
 
 `NOTION_TOKEN`は任意です。未設定でも実績登録、壁紙作成、履歴管理などのサーバー機能は利用できますが、Notionへのバックアップとバックアップからの復元は利用できません。`WALLPAPER_DELETE_AFTER_NOTION_BACKUP=true`の場合は、バックアップ成功後にサーバー上の画像を削除するため、バックアップ済み画像のダウンロードにはNotion接続が必要です。`false`にすると、バックアップ後もサーバー上の画像を保持します。
 
-`OPENAI_API_KEY`も任意です。壁紙作成画面では各工程の初期値が「手動（ChatGPT）」になり、プロンプトをコピーまたはテキストファイルでダウンロードできます。ChatGPTの分析結果はMarkdown、構図提案はJSONとして貼り付けるか、UTF-8のファイルから入力します。作成画像は画像作成プロンプトを表示しなくても、JPEG・PNG・WebP形式（最大20MB）でアップロードできます。APIを選択した場合だけ確認画面を経てOpenAI APIへ送信します。
+`OPENAI_API_KEY`も任意です。壁紙作成画面の初期値は「手動（ChatGPT）」です。「壁紙作成プロンプト」をコピーまたはダウンロードし、AIに構図の説明JSONと壁紙画像をまとめて作成してもらいます。返されたJSONを貼り付けるかUTF-8のファイルから入力し、JPEG・PNG・WebP形式（最大20MB）の画像と一緒に登録します。登録が完了すると構図と画像を壁紙詳細に表示します。傾向分析結果はMarkdownで入力します。既存の構図への画像登録・再提案は詳細画面から行えます。APIを選択した場合だけ確認画面を経てOpenAI APIへ送信します。
 
-手動画像アップロードを利用する環境では、PHPの`upload_max_filesize`と`post_max_size`を20MBより大きい値に設定してください。
+手動画像アップロードを利用する環境では、PHPの`upload_max_filesize`を20MBより大きい値に設定してください。構図JSONと画像を同時に送信するため、`post_max_size`は32MB以上を推奨します。
 
 傾向分析は初回の結果と分析済みデータの照合情報を保存し、次回から前回結果・追加データ・高額当選の分類が変わったデータだけをAIに渡します。件数や上位25%の基準額は全履歴からアプリ側で再集計します。変更がなければ前回結果を利用し、APIは呼び出しません。
 
@@ -71,7 +71,7 @@ php artisan serve
 - `GET /wallpaper-analyses/manual-data?prompt_date=YYYY-MM-DD`: 手動傾向分析用データJSONをダウンロード
 - `POST /wallpaper-analyses/manual-result`: ChatGPTの傾向分析結果を保存
 - `POST /wallpaper-analyses`: 高額当選壁紙の傾向分析をOpenAIキューへ登録（明示確認必須）
-- `GET|POST /wallpapers/proposals/manual-*`: 対象日の手動構図提案プロンプト取得・結果保存
+- `GET|POST /wallpapers/proposals/manual-*`: 対象日の手動壁紙作成プロンプト取得・構図JSONと画像の一括登録
 - `POST /wallpapers/proposals`: 対象日の構図提案をOpenAIキューへ登録（明示確認必須）
 - `GET|POST /wallpapers/{id}/proposals/manual-*`: 同日の手動再提案プロンプト取得・結果保存
 - `POST /wallpapers/{id}/repropose`: 同日の過去案を除外してOpenAIで再提案（明示確認必須）
