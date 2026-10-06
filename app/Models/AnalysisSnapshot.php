@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $data_hash
  * @property string $summary
  * @property string $status
+ * @property array|null $statistics
  */
 class AnalysisSnapshot extends Model
 {

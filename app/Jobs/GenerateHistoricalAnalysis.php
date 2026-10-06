@@ -12,7 +12,9 @@ use Throwable;
 
 class GenerateHistoricalAnalysis implements ShouldQueue
 {
-    use Queueable;
+    use Queueable {
+        __unserialize as private unserializeQueueable;
+    }
 
     public int $tries = 2;
 
@@ -22,8 +24,20 @@ class GenerateHistoricalAnalysis implements ShouldQueue
         public readonly int $snapshotId,
         public readonly string $apiRunId,
         public readonly bool $preserveExistingResult = false,
+        public readonly bool $fullConfirmed = false,
+        public readonly string $perspective = '',
+        public readonly ?string $planToken = null,
     ) {
         $this->onQueue('openai');
+    }
+
+    public function __unserialize(array $values): void
+    {
+        $this->unserializeQueueable($values + [
+            'fullConfirmed' => false,
+            'perspective' => '',
+            'planToken' => null,
+        ]);
     }
 
     public function handle(HistoricalAnalysisService $analysisService): void
@@ -41,7 +55,7 @@ class GenerateHistoricalAnalysis implements ShouldQueue
             'retryable' => false,
         ]);
 
-        $analysisService->analyze($snapshot);
+        $analysisService->analyze($snapshot, $this->fullConfirmed, $this->perspective, $this->planToken);
 
         $run->update([
             'status' => 'succeeded',
