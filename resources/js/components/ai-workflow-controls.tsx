@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Download, FileJson, LoaderCircle } from 'lucide-react';
-import { ChangeEvent, useState } from 'react';
+import { ChangeEvent, useEffect, useRef, useState } from 'react';
 
 export type ExecutionMode = 'manual' | 'api';
 
@@ -66,7 +66,51 @@ export function ExecutionModeSelector({
     );
 }
 
-export function ManualPromptPanel({ prompt, title, dataDownloadUrl }: { prompt: ManualPrompt; title: string; dataDownloadUrl?: string }) {
+export function ManualPromptPanel({
+    prompt,
+    title,
+    dataDownload,
+}: {
+    prompt: ManualPrompt;
+    title: string;
+    dataDownload?: { url: string; data: Record<string, unknown> };
+}) {
+    const [dataDownloading, setDataDownloading] = useState(false);
+    const [dataDownloadError, setDataDownloadError] = useState<string>();
+    const dataRequest = useRef<AbortController | null>(null);
+
+    useEffect(() => () => dataRequest.current?.abort(), []);
+
+    const downloadData = async () => {
+        if (!dataDownload || !prompt.data_filename || dataRequest.current) return;
+
+        const controller = new AbortController();
+        dataRequest.current = controller;
+        setDataDownloading(true);
+        setDataDownloadError(undefined);
+        try {
+            const response = await fetchManualResponse(dataDownload.url, dataDownload.data, controller.signal);
+            const blob = await response.blob();
+            if (controller.signal.aborted) return;
+
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = prompt.data_filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 0);
+        } catch (error) {
+            if (!controller.signal.aborted) {
+                setDataDownloadError(error instanceof Error ? error.message : 'データJSONを取得できませんでした。');
+            }
+        } finally {
+            dataRequest.current = null;
+            if (!controller.signal.aborted) setDataDownloading(false);
+        }
+    };
+
     const download = () => {
         const url = URL.createObjectURL(new Blob([prompt.prompt], { type: 'text/plain;charset=utf-8' }));
         const link = document.createElement('a');
@@ -82,20 +126,19 @@ export function ManualPromptPanel({ prompt, title, dataDownloadUrl }: { prompt: 
                 <h3 className="font-medium">{title}</h3>
                 <div className="flex flex-wrap justify-end gap-2">
                     <ClipboardCopyButton value={prompt.prompt} label={title} variant="outline" className="size-9" />
-                    {dataDownloadUrl && prompt.data_filename && (
-                        <Button asChild size="sm" variant="outline">
-                            <a href={dataDownloadUrl} download={prompt.data_filename}>
-                                <FileJson aria-hidden="true" />
-                                データJSON
-                            </a>
+                    {dataDownload && prompt.data_filename && (
+                        <Button type="button" size="sm" variant="outline" disabled={dataDownloading} onClick={() => void downloadData()}>
+                            {dataDownloading ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <FileJson aria-hidden="true" />}
+                            {dataDownloading ? '取得中' : 'データJSON'}
                         </Button>
                     )}
                     <Button type="button" size="sm" variant="outline" onClick={download}>
                         <Download aria-hidden="true" />
-                        {dataDownloadUrl ? 'プロンプト' : 'ダウンロード'}
+                        {dataDownload ? 'プロンプト' : 'ダウンロード'}
                     </Button>
                 </div>
             </div>
+            <InputError message={dataDownloadError} />
             <Textarea readOnly value={prompt.prompt} rows={12} className="font-mono text-xs leading-5" aria-label={title} />
         </section>
     );
@@ -232,19 +275,35 @@ export function ApiConfirmationButton({
     );
 }
 
-export async function fetchManualPrompt(url: string): Promise<ManualPrompt> {
-    const response = await fetch(url, {
-        credentials: 'same-origin',
-        headers: { Accept: 'application/json' },
-    });
-    const payload = (await response.json()) as ManualPrompt & {
-        message?: string;
-        errors?: Record<string, string[]>;
-    };
-    if (!response.ok) {
-        const firstError = payload.errors ? Object.values(payload.errors).flat()[0] : undefined;
-        throw new Error(firstError ?? payload.message ?? 'プロンプトを取得できませんでした。');
+async function fetchManualResponse(url: string, data?: Record<string, unknown>, signal?: AbortSignal): Promise<Response> {
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (data !== undefined) {
+        headers['Content-Type'] = 'application/json';
+        const xsrfToken = document.cookie
+            .split('; ')
+            .find((cookie) => cookie.startsWith('XSRF-TOKEN='))
+            ?.slice('XSRF-TOKEN='.length);
+        if (xsrfToken) headers['X-XSRF-TOKEN'] = decodeURIComponent(xsrfToken);
     }
 
-    return payload;
+    const response = await fetch(url, {
+        method: data === undefined ? 'GET' : 'POST',
+        credentials: 'same-origin',
+        headers,
+        body: data === undefined ? undefined : JSON.stringify(data),
+        signal,
+    });
+    if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { message?: string; errors?: Record<string, string[]> };
+        const firstError = payload.errors ? Object.values(payload.errors).flat()[0] : undefined;
+        throw new Error(firstError ?? payload.message ?? 'データを取得できませんでした。');
+    }
+
+    return response;
+}
+
+export async function fetchManualPrompt(url: string, data?: Record<string, unknown>, signal?: AbortSignal): Promise<ManualPrompt> {
+    const response = await fetchManualResponse(url, data, signal);
+
+    return response.json() as Promise<ManualPrompt>;
 }

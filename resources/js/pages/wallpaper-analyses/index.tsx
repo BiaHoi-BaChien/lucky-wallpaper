@@ -19,7 +19,7 @@ import AppLayout from '@/layouts/app-layout';
 import { SharedData } from '@/types';
 import { Head, useForm, usePage } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 
 interface Analysis {
     id: number;
@@ -67,23 +67,31 @@ export default function WallpaperAnalyses({
     const [analysisPrompt, setAnalysisPrompt] = useState<ManualPrompt>();
     const [analysisPromptLoading, setAnalysisPromptLoading] = useState(false);
     const [analysisPromptError, setAnalysisPromptError] = useState<string>();
+    const promptRequest = useRef<AbortController | null>(null);
     const [fullConfirmationOpen, setFullConfirmationOpen] = useState(false);
     const [perspective, setPerspective] = useState('');
     const requiresFull = analysisPlan.mode === 'requires_full';
     const unchanged = analysisPlan.mode === 'unchanged';
     const busy = analysisActive || analysisPromptLoading || apiAnalysisForm.processing || manualAnalysisForm.processing;
 
+    useEffect(() => () => promptRequest.current?.abort(), []);
+
     const loadAnalysisPrompt = async (fullConfirmed = false, approvedPerspective = '') => {
+        if (busy || promptRequest.current) return;
+
+        const controller = new AbortController();
+        promptRequest.current = controller;
         setAnalysisPromptLoading(true);
         setAnalysisPromptError(undefined);
         setAnalysisPrompt(undefined);
         try {
             const prompt = await fetchManualPrompt(
-                route('wallpaper-analyses.manual-prompt', {
-                    full_confirmed: fullConfirmed ? 1 : 0,
-                    perspective: approvedPerspective,
-                }),
+                route('wallpaper-analyses.manual-prompt'),
+                { full_confirmed: fullConfirmed, perspective: approvedPerspective },
+                controller.signal,
             );
+            if (controller.signal.aborted) return;
+
             setAnalysisPrompt(prompt);
             manualAnalysisForm.setData({
                 analysis_markdown: prompt.default_result ?? '',
@@ -93,9 +101,12 @@ export default function WallpaperAnalyses({
                 perspective: approvedPerspective,
             });
         } catch (error) {
-            setAnalysisPromptError(error instanceof Error ? error.message : 'プロンプトを取得できませんでした。');
+            if (!controller.signal.aborted) {
+                setAnalysisPromptError(error instanceof Error ? error.message : 'プロンプトを取得できませんでした。');
+            }
         } finally {
-            setAnalysisPromptLoading(false);
+            promptRequest.current = null;
+            if (!controller.signal.aborted) setAnalysisPromptLoading(false);
         }
     };
 
@@ -242,14 +253,18 @@ export default function WallpaperAnalyses({
                         {analysisPrompt && analysisMode === 'manual' && (
                             <>
                                 <ManualPromptPanel
+                                    key={analysisPrompt.prompt_hash}
                                     prompt={analysisPrompt}
                                     title="傾向分析プロンプト"
-                                    dataDownloadUrl={route('wallpaper-analyses.manual-data', {
-                                        prompt_date: analysisPrompt.prompt_date,
-                                        prompt_hash: analysisPrompt.prompt_hash,
-                                        full_confirmed: manualAnalysisForm.data.full_confirmed ? 1 : 0,
-                                        perspective: manualAnalysisForm.data.perspective,
-                                    })}
+                                    dataDownload={{
+                                        url: route('wallpaper-analyses.manual-data'),
+                                        data: {
+                                            prompt_date: analysisPrompt.prompt_date,
+                                            prompt_hash: analysisPrompt.prompt_hash,
+                                            full_confirmed: manualAnalysisForm.data.full_confirmed,
+                                            perspective: manualAnalysisForm.data.perspective,
+                                        },
+                                    }}
                                 />
                                 <form onSubmit={saveAnalysis} className="space-y-3 border-t pt-4">
                                     <ManualResultField
