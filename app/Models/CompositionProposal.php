@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $composition_zone
  * @property string $color_wu_xing
  * @property string $symbolism
+ * @property array|null $calendar_context
  * @property string $input_hash
  */
 class CompositionProposal extends Model

@@ -46,7 +46,7 @@ class GenerateWallpaperImage implements ShouldQueue
         $stored = $images->normalizeAndStore($bytes);
 
         $wallpaper->update([
-            'chosen_proposal_id' => $proposal?->id,
+            'chosen_proposal_id' => $proposal->id ?? $wallpaper->chosen_proposal_id,
             'image_disk' => $stored['disk'],
             'image_path' => $stored['path'],
             'image_mime' => $stored['mime'],

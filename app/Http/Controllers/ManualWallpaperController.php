@@ -207,7 +207,7 @@ class ManualWallpaperController extends Controller
                     $currentProposal->update(['status' => 'approved']);
                 }
                 $wallpaper->update([
-                    'chosen_proposal_id' => $currentProposal?->id,
+                    'chosen_proposal_id' => $currentProposal->id ?? $wallpaper->chosen_proposal_id,
                     'image_disk' => $stored['disk'],
                     'image_path' => $stored['path'],
                     'image_mime' => $stored['mime'],

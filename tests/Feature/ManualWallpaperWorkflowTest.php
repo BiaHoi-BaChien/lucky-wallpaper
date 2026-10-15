@@ -9,6 +9,7 @@ use App\Models\AnalysisSnapshot;
 use App\Models\ApiRun;
 use App\Models\User;
 use App\Models\Wallpaper;
+use App\Services\FengShuiPolicy;
 use App\Services\HistoricalAnalysisService;
 use App\Services\WallpaperPromptService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -253,9 +254,12 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertStringContainsString('画像内には文字、数字、ロゴ、署名、透かしを一切入れない', $prompt['prompt']);
         $this->assertStringContainsString('主要モチーフは安全領域に配置', $prompt['prompt']);
         $this->assertStringContainsString('1440×2560px', $prompt['prompt']);
+        $this->assertStringContainsString('風水の必須基準', $prompt['prompt']);
+        $this->assertStringContainsString('分析がない場合も必須', $prompt['prompt']);
+        $this->assertStringContainsString(FengShuiPolicy::VERSION, $prompt['prompt']);
         $this->assertStringNotContainsString('JSONオブジェクトだけにしてください', $prompt['prompt']);
         $this->assertSame('wallpaper-creation-2026-08-10.txt', $prompt['filename']);
-        $json = "```json\n".json_encode($this->proposalPayload('手動の黄金庭園'), JSON_UNESCAPED_UNICODE)."\n```";
+        $json = "```json\n".json_encode($this->proposalPayload('手動の黄金庭園', true), JSON_UNESCAPED_UNICODE)."\n```";
 
         $this->actingAs($user)
             ->post('/wallpapers/proposals/manual-result', [
@@ -281,6 +285,10 @@ class ManualWallpaperWorkflowTest extends TestCase
         ]);
         $wallpaper = Wallpaper::query()->sole();
         $this->assertSame($wallpaper->proposals()->sole()->id, $wallpaper->chosen_proposal_id);
+        $this->assertSame($this->proposalPayload('手動の黄金庭園', true)['feng_shui'], $wallpaper->proposals()->sole()->calendar_context['feng_shui']);
+        $this->assertSame(FengShuiPolicy::VERSION, $wallpaper->proposals()->sole()->calendar_context['feng_shui_policy_version']);
+        $imagePrompt = app(WallpaperPromptService::class)->image($wallpaper)['prompt'];
+        $this->assertStringContainsString('配色の指定: 白（主色）、金（補助色）', $imagePrompt);
         Storage::disk('local')->assertExists($wallpaper->image_path);
         $bytes = Storage::disk('local')->get($wallpaper->image_path);
         $size = getimagesizefromstring($bytes);
@@ -315,7 +323,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertStringContainsString('テスト', $prompt['prompt']);
         $this->post('/wallpapers/proposals/manual-result', [
             'target_date' => '2026-08-10',
-            'proposal_json' => json_encode($this->proposalPayload('過去分析からの案'), JSON_UNESCAPED_UNICODE),
+            'proposal_json' => json_encode($this->proposalPayload('過去分析からの案', true), JSON_UNESCAPED_UNICODE),
             'prompt_hash' => $prompt['prompt_hash'],
             'image' => UploadedFile::fake()->image('wallpaper.png', 90, 160),
         ])->assertRedirect()->assertSessionHasNoErrors();
@@ -391,7 +399,7 @@ class ManualWallpaperWorkflowTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors('target_date');
         $this->post('/wallpapers/proposals/manual-result', [
             'target_date' => '2026-08-10',
-            'proposal_json' => json_encode($this->proposalPayload('重複登録')),
+            'proposal_json' => json_encode($this->proposalPayload('重複登録', true)),
             'prompt_hash' => $prompt['prompt_hash'],
             'image' => UploadedFile::fake()->image('wallpaper.png', 90, 160),
         ])->assertSessionHasErrors('target_date');
@@ -414,7 +422,7 @@ class ManualWallpaperWorkflowTest extends TestCase
 
         $this->post('/wallpapers/proposals/manual-result', [
             'target_date' => '2026-08-10',
-            'proposal_json' => json_encode($this->proposalPayload('画像処理失敗')),
+            'proposal_json' => json_encode($this->proposalPayload('画像処理失敗', true)),
             'prompt_hash' => $prompt['prompt_hash'],
             'image' => UploadedFile::fake()->image('wallpaper.png', 90, 160),
         ])->assertSessionHasErrors('image');
@@ -443,7 +451,7 @@ class ManualWallpaperWorkflowTest extends TestCase
 
         $this->post('/wallpapers/proposals/manual-result', [
             'target_date' => '2026-08-10',
-            'proposal_json' => json_encode($this->proposalPayload('保存中の失敗')),
+            'proposal_json' => json_encode($this->proposalPayload('保存中の失敗', true)),
             'prompt_hash' => $prompt['prompt_hash'],
             'image' => UploadedFile::fake()->image('wallpaper.png', 90, 160),
         ])->assertSessionHasErrors('proposal_json');
@@ -499,7 +507,7 @@ class ManualWallpaperWorkflowTest extends TestCase
 
         $this->actingAs($user)
             ->post("/wallpapers/{$wallpaper->id}/proposals/manual-result", [
-                'proposal_json' => json_encode($this->proposalPayload('新しい案'), JSON_UNESCAPED_UNICODE),
+                'proposal_json' => json_encode($this->proposalPayload('新しい案', true), JSON_UNESCAPED_UNICODE),
                 'prompt_hash' => $prompt['prompt_hash'],
             ])
             ->assertRedirect()
@@ -539,6 +547,31 @@ class ManualWallpaperWorkflowTest extends TestCase
         Queue::assertNothingPushed();
     }
 
+    public function test_manual_feng_shui_violation_is_rejected_before_storing_an_image(): void
+    {
+        Http::preventStrayRequests();
+        Storage::fake('local');
+        $user = User::factory()->create();
+        $prompt = $this->actingAs($user)
+            ->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-08-14')
+            ->assertOk()
+            ->json();
+        $payload = $this->proposalPayload('外へ流れる構図', true);
+        $payload['feng_shui']['flow'] = '外向き';
+
+        $this->post('/wallpapers/proposals/manual-result', [
+            'target_date' => '2026-08-14',
+            'proposal_json' => json_encode($payload, JSON_UNESCAPED_UNICODE),
+            'prompt_hash' => $prompt['prompt_hash'],
+            'image' => UploadedFile::fake()->image('wallpaper.png', 90, 160),
+        ])->assertSessionHasErrors('proposal_json');
+
+        $this->assertDatabaseCount('wallpapers', 0);
+        $this->assertDatabaseCount('composition_proposals', 0);
+        $this->assertSame([], Storage::disk('local')->allFiles());
+        Http::assertNothingSent();
+    }
+
     public function test_manual_proposal_requires_a_supported_composition_zone(): void
     {
         Queue::fake();
@@ -548,10 +581,10 @@ class ManualWallpaperWorkflowTest extends TestCase
             ->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-08-14')
             ->assertOk()
             ->json();
-        $missing = $this->proposalPayload('九宮なし');
+        $missing = $this->proposalPayload('九宮なし', true);
         unset($missing['composition_zone']);
 
-        foreach ([$missing, [...$this->proposalPayload('不正な九宮'), 'composition_zone' => 'outside']] as $payload) {
+        foreach ([$missing, [...$this->proposalPayload('不正な九宮', true), 'composition_zone' => 'outside']] as $payload) {
             $this->actingAs($user)
                 ->post('/wallpapers/proposals/manual-result', [
                     'target_date' => '2026-08-14',
@@ -575,7 +608,7 @@ class ManualWallpaperWorkflowTest extends TestCase
             ->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-08-14')
             ->assertOk()
             ->json();
-        $proposal = $this->proposalPayload('長すぎる画風の案');
+        $proposal = $this->proposalPayload('長すぎる画風の案', true);
         $proposal['art_style'] = str_repeat('画', 256);
 
         $this->actingAs($user)
@@ -704,6 +737,42 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertNull($wallpaper->chosen_proposal_id);
     }
 
+    public function test_manual_image_without_proposal_id_preserves_chosen_feng_shui(): void
+    {
+        Storage::fake('local');
+        Http::preventStrayRequests();
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create(['image_disk' => null, 'image_path' => null]);
+        $payload = $this->proposalPayload('承認済みの案', withFengShui: true);
+        $selection = $payload['feng_shui'];
+        unset($payload['feng_shui']);
+        $proposal = $wallpaper->proposals()->create([
+            ...$payload,
+            'sequence' => 1,
+            'status' => 'approved',
+            'input_hash' => str_repeat('b', 64),
+            'calendar_context' => ['feng_shui' => $selection],
+        ]);
+        $wallpaper->update(['chosen_proposal_id' => $proposal->id]);
+        $prompt = $this->actingAs($user)
+            ->getJson("/wallpapers/{$wallpaper->id}/image/manual-prompt")
+            ->assertOk()->json();
+        $this->assertStringContainsString('配色の指定: 白（主色）、金（補助色）', $prompt['prompt']);
+
+        $this->post("/wallpapers/{$wallpaper->id}/image/manual-result", [
+            'prompt_hash' => $prompt['prompt_hash'],
+            'image' => UploadedFile::fake()->image('wallpaper.png', 900, 1600),
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $this->assertSame($proposal->id, $wallpaper->refresh()->chosen_proposal_id);
+        $this->assertSame('approved', $proposal->refresh()->status);
+        Storage::disk('local')->assertExists($wallpaper->image_path);
+        $nextPrompt = $this->getJson("/wallpapers/{$wallpaper->id}/image/manual-prompt")
+            ->assertOk()->json();
+        $this->assertSame($prompt, $nextPrompt);
+        Http::assertNothingSent();
+    }
+
     public function test_manual_image_requires_existing_composition(): void
     {
         Storage::fake('local');
@@ -823,7 +892,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         ]);
     }
 
-    private function proposalPayload(string $title): array
+    private function proposalPayload(string $title, bool $withFengShui = false): array
     {
         return [
             'title' => $title,
@@ -834,6 +903,16 @@ class ManualWallpaperWorkflowTest extends TestCase
             'composition_zone' => 'center',
             'color_wu_xing' => '金',
             'symbolism' => '象徴',
+            ...($withFengShui ? ['feng_shui' => [
+                'palette' => [
+                    ['color' => '白', 'element' => '金', 'role' => '主色'],
+                    ['color' => '金', 'element' => '金', 'role' => '補助色'],
+                ],
+                'color_judgement' => '吉',
+                'color_reason' => '白を主色、金を穏やかな光に用い、六白金星との比和と明暗の調和を採用。',
+                'flow' => '静穏',
+                'structure' => '丸み',
+            ]] : []),
         ];
     }
 }

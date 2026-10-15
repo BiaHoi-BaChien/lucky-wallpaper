@@ -23,6 +23,7 @@ class WallpaperPromptService
         'composition_zone',
         'color_wu_xing',
         'symbolism',
+        'feng_shui',
     ];
 
     public function __construct(
@@ -84,6 +85,7 @@ class WallpaperPromptService
         $input = json_encode([
             'target_date' => $targetDate,
             'calendar' => $calendar,
+            'feng_shui_policy' => FengShuiPolicy::context(),
             'historical_analysis_markdown' => $snapshot->summary ?? '',
             'top_winners' => $topWinners,
             'recent_art_styles' => $recentStyles,
@@ -107,7 +109,7 @@ class WallpaperPromptService
 出力は次の2点です。
 1. 次のJSON Schemaに一致する構図の説明JSONオブジェクト。JSON部分には説明文やコードフェンス、ファイル名、ダウンロードリンクを混ぜないでください。
 回答と同じ内容をUTF-8のJSONファイル（wallpaper-composition-{$targetDate}.json）としてダウンロードできるようにしてください。
-2. そのJSONのtitle、art_style、overview、composition、composition_zone、color_wu_xingに従ったスマートフォン用の縦長壁紙画像1枚。縦横比は9:16、推奨サイズは1440×2560pxです。
+2. そのJSONのtitle、art_style、overview、composition、composition_zone、color_wu_xingとfeng_shuiの必須条件に従ったスマートフォン用の縦長壁紙画像1枚。縦横比は9:16、推奨サイズは1440×2560pxです。
 画像内には文字、数字、ロゴ、署名、透かしを一切入れないでください。
 ロック画面の時計やアイコンが重なる上部と下部は情報量を抑え、主要モチーフは安全領域に配置してください。
 金額・通貨・過去実績・当選確率・分析上の注意書きや採用理由など、symbolismにまとめた説明は画像に描き込まないでください。
@@ -120,6 +122,7 @@ JSONと画像はそれぞれ別のファイルとして保存できるように�
 保存した画像ファイルを参照できる場合は、![壁紙プレビュー](画像ファイルのURL) と [壁紙画像をダウンロード](同じ画像ファイルのURL) の両方を、コードフェンスで囲まずに出力してください。URL部分は実際に作成したファイルの有効な参照先に置き換えてください。
 画像ファイルを直接参照できない場合は、画像生成機能の標準の画像表示と保存・ダウンロード操作を利用できる形で提示してください。
 回答を終える前に、画像生成の成功と、JSON・画像の両方を表示・保存するための添付や参照先をツール結果で確認してください。生成済み画像の提示が欠けている場合は、その画像を再添付・再表示してください。
+feng_shui.color_judgementが吉の場合だけ画像を生成してください。生成画像を確認できる場合は、指定した配色・流れ・形状と禁止条件に照らし、違反があれば修正してから提供してください。画像自体を確認できない場合は未確認であることをJSON本文の外で明記し、確認済みと偽らないでください。
 画像生成やファイル提供ができない場合は、できなかった内容と理由を明記してください。未作成のファイルへのリンクや架空のURLを出したり、画像を提供していないのに完了と報告したりしないでください。
 PROMPT : <<<PROMPT
 回答は次のJSON Schemaに一致するJSONオブジェクトだけにしてください。説明文やコードフェンスは付けないでください。
@@ -167,6 +170,13 @@ PROMPT;
     public function image(Wallpaper $wallpaper, ?CompositionProposal $proposal = null): array
     {
         $details = $proposal ?? $wallpaper;
+        $policyProposal = $proposal;
+        if ($policyProposal === null && $wallpaper->exists) {
+            $policyProposal = $wallpaper->chosen_proposal_id !== null
+                ? $wallpaper->proposals()->whereKey($wallpaper->chosen_proposal_id)->first()
+                : $wallpaper->proposals()->where('status', 'proposed')->orderByDesc('sequence')->first();
+        }
+        $selection = $policyProposal?->calendar_context['feng_shui'] ?? null;
         $symbolism = $this->imageSymbolism($details->symbolism);
         $prompt = implode("\n\n", [
             'スマートフォン用の縦長壁紙を1枚制作してください。画像内には文字、数字、ロゴ、署名、透かしを一切入れないでください。',
@@ -178,6 +188,7 @@ PROMPT;
             '色彩: '.$details->color_wu_xing,
             ...($symbolism === '' ? [] : ['補足描写: '.$symbolism]),
             '視認性: ロック画面の時計やアイコンが重なる上部と下部は情報量を抑え、主要モチーフは安全領域に配置する。',
+            FengShuiPolicy::visualInstructions($selection),
         ]);
 
         return [
@@ -185,7 +196,7 @@ PROMPT;
             'prompt_hash' => hash('sha256', config('lucky.openai.prompt_version').'|'.$prompt),
             'context_hash' => hash(
                 'sha256',
-                ($proposal === null ? $wallpaper->compositionDetails() : $proposal->input_hash).'|image',
+                ($proposal === null ? $wallpaper->compositionDetails() : $proposal->input_hash).'|image|'.$prompt,
             ),
             'filename' => 'wallpaper-image-'.$wallpaper->target_date->format('Y-m-d').'.txt',
         ];
@@ -259,6 +270,7 @@ PROMPT;
             'composition_zone' => ['required', 'string', Rule::in(Wallpaper::COMPOSITION_ZONES)],
             'color_wu_xing' => ['required', 'string', 'max:500000'],
             'symbolism' => ['required', 'string', 'max:500000'],
+            ...FengShuiPolicy::validationRules(),
         ], [
             'required' => ':attributeは必須です。',
             'string' => ':attributeは文字列で入力してください。',
@@ -266,7 +278,14 @@ PROMPT;
         ], array_combine(self::PROPOSAL_FIELDS, self::PROPOSAL_FIELDS));
         if ($validator->fails()) {
             throw ValidationException::withMessages([
-                'proposal_json' => implode(' ', $validator->errors()->all()),
+                'proposal_json' => $validator->errors()->hasAny(['feng_shui', 'feng_shui.*'])
+                    ? '風水の配色評価または構図指定が基準に一致しません。主色・五行の内訳、吉とする根拠、流れ・形状を最新のプロンプトで確認してください。'
+                    : implode(' ', $validator->errors()->all()),
+            ]);
+        }
+        if (! collect($payload['feng_shui']['palette'])->contains('role', '主色')) {
+            throw ValidationException::withMessages([
+                'proposal_json' => '風水の配色評価には、少なくとも1つの主色の指定が必要です。',
             ]);
         }
 
@@ -280,7 +299,12 @@ PROMPT;
         bool $reproposal,
         bool $allowWithoutCurrentAnalysis = false,
     ): CompositionProposal {
-        return DB::transaction(function () use ($wallpaper, $result, $expectedInputHash, $reproposal, $allowWithoutCurrentAnalysis): CompositionProposal {
+        // API output must pass the same checks as manually submitted JSON.
+        $result = $this->parseProposal(json_encode($result, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+        $selection = $result['feng_shui'];
+        unset($result['feng_shui']);
+
+        return DB::transaction(function () use ($wallpaper, $result, $selection, $expectedInputHash, $reproposal, $allowWithoutCurrentAnalysis): CompositionProposal {
             $wallpaper = Wallpaper::query()->lockForUpdate()->findOrFail($wallpaper->id);
             $prepared = $this->composition(
                 $wallpaper->target_date->format('Y-m-d'),
@@ -300,7 +324,11 @@ PROMPT;
                 ...$result,
                 'sequence' => ((int) $wallpaper->proposals()->max('sequence')) + 1,
                 'status' => 'proposed',
-                'calendar_context' => $prepared['calendar'],
+                'calendar_context' => [
+                    ...$prepared['calendar'],
+                    'feng_shui_policy_version' => FengShuiPolicy::VERSION,
+                    'feng_shui' => $selection,
+                ],
                 'analysis_hash' => $prepared['analysis_hash'],
                 'input_hash' => $prepared['input_hash'],
             ]);
@@ -317,6 +345,8 @@ PROMPT;
 
     private function compositionInstructions(string $targetDate): string
     {
+        $fengShui = FengShuiPolicy::compositionInstructions();
+
         return <<<PROMPT
 あなたは金運をテーマにしたスマートフォン壁紙のアートディレクターです。
 これは{$targetDate}用のスマートフォン壁紙です。
@@ -334,6 +364,8 @@ color_wu_xingには実際に描く色・配色・素材の見え方を書き、�
 symbolismは説明用です。象徴を表現するために必要なモチーフや視覚的特徴はsymbolismだけに書かず、overview、composition、color_wu_xingにも具体的に記述してください。
 titleとart_styleはそれぞれ255文字以内にしてください。
 結論は「構図名 × 画風」の1行にしてください。
+
+{$fengShui}
 PROMPT;
     }
 }
