@@ -9,11 +9,16 @@ use App\Models\AnalysisSnapshot;
 use App\Models\ApiRun;
 use App\Models\User;
 use App\Models\Wallpaper;
+use App\Services\FengShuiPolicy;
 use App\Services\HistoricalAnalysisService;
 use App\Services\OpenAiClient;
 use App\Services\WallpaperPromptService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Queue\Events\JobFailed;
+use Illuminate\Queue\Events\JobReleasedAfterException;
+use Illuminate\Queue\WorkerOptions;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Inertia\Testing\AssertableInertia;
@@ -277,7 +282,11 @@ class WallpaperAnalysisTest extends TestCase
 
             return is_string($instructions)
                 && str_contains($instructions, '2026年8月4日用のスマートフォン壁紙です。')
+                && str_contains($instructions, '風水の必須基準')
                 && is_array($decoded)
+                && ($decoded['feng_shui_policy']['personal_star'] ?? null) === '六白金星'
+                && ($decoded['feng_shui_policy']['version'] ?? null) === FengShuiPolicy::VERSION
+                && ($request->data()['text']['format']['schema']['properties']['feng_shui'] ?? null) === FengShuiPolicy::SCHEMA
                 && ($decoded['historical_analysis_markdown'] ?? null) === $analysis->summary;
         });
         $this->assertDatabaseHas('composition_proposals', [
@@ -286,6 +295,74 @@ class WallpaperAnalysisTest extends TestCase
             'composition_zone' => 'center',
         ]);
         $this->assertSame('center', $wallpaper->refresh()->composition_zone);
+        $proposal = $wallpaper->proposals()->sole();
+        $this->assertSame($this->proposalPayload()['feng_shui'], $proposal->calendar_context['feng_shui']);
+        $imagePrompt = app(WallpaperPromptService::class)->image($wallpaper, $proposal)['prompt'];
+        $this->assertStringContainsString('配色の指定: ベージュ（主色）、赤（差し色）', $imagePrompt);
+        $this->assertStringContainsString('流れは内向き', $imagePrompt);
+        $this->assertStringContainsString('主要な形は安定した矩形', $imagePrompt);
+        $defaultImagePrompt = app(WallpaperPromptService::class)->image($wallpaper)['prompt'];
+        $this->assertStringContainsString('配色の指定: ベージュ（主色）、赤（差し色）', $defaultImagePrompt);
+    }
+
+    public function test_inauspicious_api_assessment_fails_without_retrying_or_replacing_previous_proposal(): void
+    {
+        config([
+            'lucky.openai.api_key' => 'test',
+            'queue.connections.database.connection' => 'sqlite',
+            'queue.connections.database.table' => 'jobs',
+        ]);
+        Http::preventStrayRequests();
+        Event::fake([JobFailed::class, JobReleasedAfterException::class]);
+        $wallpaper = Wallpaper::factory()->create(['state' => 'proposed', 'title' => '以前の案']);
+        $previousPayload = $this->proposalPayload();
+        unset($previousPayload['feng_shui']);
+        $previous = $wallpaper->proposals()->create([
+            ...$previousPayload,
+            'sequence' => 1,
+            'status' => 'proposed',
+            'input_hash' => str_repeat('b', 64),
+        ]);
+        $this->createCurrentAnalysis();
+        $run = ApiRun::query()->create([
+            'type' => 'composition_proposal',
+            'model' => config('lucky.openai.text_model'),
+            'prompt_version' => config('lucky.openai.prompt_version'),
+            'input_hash' => str_repeat('a', 64),
+            'subject_type' => $wallpaper->getMorphClass(),
+            'subject_id' => $wallpaper->id,
+        ]);
+        $payload = $this->proposalPayload();
+        $payload['feng_shui']['color_judgement'] = '凶';
+        Http::fake([
+            'api.openai.com/v1/responses' => Http::response([
+                'output' => [['content' => [[
+                    'type' => 'output_text',
+                    'text' => json_encode($payload, JSON_UNESCAPED_UNICODE),
+                ]]]],
+            ]),
+        ]);
+
+        $queue = Queue::connection('database');
+        $queue->push(new GenerateCompositionProposal($wallpaper->id, $run->id, true), queue: 'openai');
+        $worker = app('queue.worker');
+        $options = new WorkerOptions(sleep: 0, maxTries: 3);
+        $worker->runNextJob('database', 'openai', $options);
+
+        $this->assertSame(0, $queue->size('openai'));
+        Event::assertDispatched(JobFailed::class, fn (JobFailed $event): bool => $event->exception instanceof ExternalApiException
+            && $event->exception->errorCode === 'composition_validation_failed'
+            && ! $event->exception->retryable);
+        Event::assertNotDispatched(JobReleasedAfterException::class);
+        $worker->runNextJob('database', 'openai', $options);
+
+        $this->assertSame('failed', $run->refresh()->status);
+        $this->assertSame('composition_validation_failed', $run->error_code);
+        $this->assertFalse($run->retryable);
+        $this->assertSame('以前の案', $wallpaper->refresh()->title);
+        $this->assertSame('proposed', $previous->refresh()->status);
+        $this->assertDatabaseCount('composition_proposals', 1);
+        Http::assertSentCount(1);
     }
 
     public function test_composition_api_rejects_analysis_invalidated_while_queued(): void
@@ -400,8 +477,18 @@ class WallpaperAnalysisTest extends TestCase
             'overview' => '概要',
             'composition' => '配置',
             'composition_zone' => 'center',
-            'color_wu_xing' => '金',
+            'color_wu_xing' => 'ベージュを主色に、赤を小さな差し色として添える。',
             'symbolism' => '象徴',
+            'feng_shui' => [
+                'palette' => [
+                    ['color' => 'ベージュ', 'element' => '土', 'role' => '主色'],
+                    ['color' => '赤', 'element' => '火', 'role' => '差し色'],
+                ],
+                'color_judgement' => '吉',
+                'color_reason' => '土のベージュを主色にし、赤は小さな差し色で火生土から土生金につなぐ。',
+                'flow' => '内向き',
+                'structure' => '安定した矩形',
+            ],
         ];
     }
 }

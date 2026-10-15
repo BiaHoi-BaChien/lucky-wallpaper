@@ -587,6 +587,59 @@ class WallpaperWorkflowTest extends TestCase
         ]);
     }
 
+    public function test_image_regeneration_without_proposal_id_preserves_chosen_feng_shui(): void
+    {
+        config(['lucky.openai.api_key' => 'test']);
+        Storage::fake('local');
+        Http::preventStrayRequests();
+        Http::fake([
+            'api.openai.com/v1/images/generations' => Http::response([
+                'data' => [['b64_json' => base64_encode($this->pngBytes())]],
+            ]),
+        ]);
+        $wallpaper = Wallpaper::factory()->create(['image_disk' => null, 'image_path' => null]);
+        $proposal = $wallpaper->proposals()->create([
+            ...$wallpaper->only(['art_style', 'conclusion', 'overview', 'composition', 'color_wu_xing', 'symbolism']),
+            'title' => '承認済みの案',
+            'sequence' => 1,
+            'status' => 'approved',
+            'input_hash' => str_repeat('a', 64),
+            'calendar_context' => ['feng_shui' => [
+                'palette' => [['color' => '白', 'element' => '金', 'role' => '主色']],
+                'color_judgement' => '吉',
+                'color_reason' => '白を主色にして六白金星との比和を採用する。',
+                'flow' => '内向き',
+                'structure' => '丸み',
+            ]],
+        ]);
+        $wallpaper->update(['chosen_proposal_id' => $proposal->id]);
+        $prompts = app(WallpaperPromptService::class);
+        $prepared = $prompts->image($wallpaper);
+        $this->assertStringContainsString('配色の指定: 白（主色）', $prepared['prompt']);
+        $this->assertStringContainsString('構図名: '.$wallpaper->title, $prepared['prompt']);
+        $run = ApiRun::query()->create([
+            'type' => 'image_generation',
+            'model' => 'test-image-model',
+            'prompt_version' => 'v1',
+            'input_hash' => $prepared['context_hash'],
+            'subject_type' => $wallpaper->getMorphClass(),
+            'subject_id' => $wallpaper->id,
+        ]);
+
+        (new GenerateWallpaperImage($wallpaper->id, null, $run->id))->handle(
+            app(OpenAiClient::class),
+            app(ImageService::class),
+            $prompts,
+        );
+
+        $this->assertSame($proposal->id, $wallpaper->refresh()->chosen_proposal_id);
+        $this->assertSame('approved', $proposal->refresh()->status);
+        $this->assertSame($prepared, $prompts->image($wallpaper));
+        Storage::disk('local')->assertExists($wallpaper->image_path);
+        Http::assertSent(fn ($request): bool => $request['prompt'] === $prepared['prompt']);
+        Http::assertSentCount(1);
+    }
+
     private function createCurrentAnalysis(): AnalysisSnapshot
     {
         return AnalysisSnapshot::query()->create([

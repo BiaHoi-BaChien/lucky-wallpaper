@@ -9,6 +9,7 @@ use App\Services\OpenAiClient;
 use App\Services\WallpaperPromptService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 class GenerateCompositionProposal implements ShouldQueue
@@ -46,7 +47,21 @@ class GenerateCompositionProposal implements ShouldQueue
             OpenAiClient::PROPOSAL_SCHEMA,
             'wallpaper_composition',
         );
-        $prompts->saveProposal($wallpaper, $result, $prepared['input_hash'], $this->reproposal);
+        try {
+            $prompts->saveProposal($wallpaper, $result, $prepared['input_hash'], $this->reproposal);
+        } catch (ValidationException) {
+            $run->update([
+                'status' => 'failed',
+                'error_code' => 'composition_validation_failed',
+                'retryable' => false,
+                'finished_at' => now(),
+            ]);
+
+            $exception = new ExternalApiException('composition_validation_failed', false);
+            $this->fail($exception);
+
+            throw $exception;
+        }
     }
 
     public function failed(?Throwable $exception): void

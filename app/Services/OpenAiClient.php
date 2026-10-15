@@ -14,7 +14,7 @@ class OpenAiClient
     public const PROPOSAL_SCHEMA = [
         'type' => 'object',
         'additionalProperties' => false,
-        'required' => ['title', 'art_style', 'conclusion', 'overview', 'composition', 'composition_zone', 'color_wu_xing', 'symbolism'],
+        'required' => ['title', 'art_style', 'conclusion', 'overview', 'composition', 'composition_zone', 'color_wu_xing', 'symbolism', 'feng_shui'],
         'properties' => [
             'title' => ['type' => 'string'],
             'art_style' => ['type' => 'string'],
@@ -24,6 +24,7 @@ class OpenAiClient
             'composition_zone' => ['type' => 'string', 'enum' => Wallpaper::COMPOSITION_ZONES],
             'color_wu_xing' => ['type' => 'string'],
             'symbolism' => ['type' => 'string'],
+            'feng_shui' => FengShuiPolicy::SCHEMA,
         ],
     ];
 
