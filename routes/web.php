@@ -18,6 +18,14 @@ Route::get('/', function () {
 })->name('home');
 
 Route::middleware(['auth'])->group(function () {
+    Route::get('settings/session-upload-progress-check', function () {
+        abort_unless(User::query()->count() === 1, 403);
+
+        return response()->json([
+            'session.upload_progress.enabled' => ini_get('session.upload_progress.enabled'),
+        ])->header('Cache-Control', 'private, no-store, max-age=0');
+    });
+
     Route::get('dashboard', DashboardController::class)->name('dashboard');
     Route::post('notion-syncs', [NotionSyncController::class, 'store'])->name('notion-syncs.store');
 
