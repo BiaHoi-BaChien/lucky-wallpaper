@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\ExternalApiException;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -202,6 +203,31 @@ class NotionClient
         }
 
         return ($file['type'] ?? null) === 'file' ? data_get($file, 'file.url') : null;
+    }
+
+    public function hasWallpaperImage(?string $pageId): bool
+    {
+        if ($pageId === null || $pageId === '' || ! $this->isConfigured()) {
+            return false;
+        }
+
+        try {
+            // Page rendering must not wait for the background-sync retry budget.
+            $response = $this->client()
+                ->connectTimeout(2)
+                ->timeout(3)
+                ->withoutRedirecting()
+                ->get('/pages/'.$pageId);
+            $this->ensureSuccess($response);
+            $page = $response->json();
+            $url = is_array($page) ? $this->wallpaperFileUrl($page) : null;
+
+            return $url !== null && $url !== '';
+        } catch (ExternalApiException|ConnectionException $exception) {
+            report($exception);
+
+            return false;
+        }
     }
 
     /**

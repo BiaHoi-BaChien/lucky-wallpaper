@@ -39,20 +39,21 @@ class WallpaperController extends Controller
     public function show(Wallpaper $wallpaper, NotionClient $notion): Response
     {
         $localImageAvailable = $this->hasLocalImage($wallpaper);
-        $downloadRequiresNotionConfiguration = ! $localImageAvailable
-            && $wallpaper->notion_page_id !== null
-            && ! $notion->isConfigured();
+        $downloadAvailable = $localImageAvailable || $notion->hasWallpaperImage($wallpaper->notion_page_id);
+        $downloadUnavailableReason = null;
+        if (! $downloadAvailable && $wallpaper->notion_page_id !== null) {
+            $downloadUnavailableReason = $notion->isConfigured()
+                ? 'Notionバックアップの画像を確認できませんでした。Notionページの画像ファイルと接続設定を確認してください。'
+                : 'Notionバックアップの画像を確認・ダウンロードするにはNOTION_TOKENの設定が必要です。';
+        }
 
         return Inertia::render('wallpapers/show', [
             'wallpaper' => $wallpaper->load(['proposals' => fn ($query) => $query->orderByDesc('sequence')]),
             'kigaku' => $wallpaper->kigaku(),
             'directionLabel' => KigakuPolicy::GROUPS[KigakuPolicy::group($wallpaper->kigaku())],
             'localImageAvailable' => $localImageAvailable,
-            'downloadAvailable' => $localImageAvailable
-                || ($wallpaper->notion_page_id !== null && $notion->isConfigured()),
-            'downloadUnavailableReason' => $downloadRequiresNotionConfiguration
-                ? '画像はNotionバックアップに保管されています。ダウンロードするにはNOTION_TOKENの設定が必要です。'
-                : null,
+            'downloadAvailable' => $downloadAvailable,
+            'downloadUnavailableReason' => $downloadUnavailableReason,
             'previousWallpaperId' => Wallpaper::query()
                 ->where('target_date', '<', $wallpaper->target_date->toDateString())
                 ->orderByDesc('target_date')

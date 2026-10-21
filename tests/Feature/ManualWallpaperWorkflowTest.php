@@ -15,6 +15,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Inertia\Testing\AssertableInertia as Assert;
 use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\KigakuFixtures as Fixtures;
@@ -38,19 +39,26 @@ class ManualWallpaperWorkflowTest extends TestCase
     {
         Wallpaper::factory()->create(['title' => '過去の秘密の構図', 'prize_vnd' => 12345]);
         $prompt = $this->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-10-22')->assertOk()->json();
-        foreach (['六白金星', '2026-10-22', 'Asia/Ho_Chi_Minh', 'candidate_directions', 'undetermined', '1440×2560', 'プレビュー', 'ダウンロード', '実際に使用'] as $text) {
+        foreach (['六白金星', '2026-10-22', 'Asia/Ho_Chi_Minh', 'candidate_directions', 'undetermined', '1440×2560', 'プレビュー', 'ダウンロード', '実際に使用',
+            '日盤＞月盤＞年盤', '3盤すべてに共通する方位だけに絞る方式は使わない',
+            '日盤に吉方位がないと確認できた場合だけ月盤へ、月盤にもない場合だけ年盤へ',
+            '下位盤だけの吉方位を候補に混ぜない', '確認できた下位盤を月盤、年盤の順に比較',
+            '3盤すべてで吉方位がないと確認できた場合だけstatus=none',
+            '必要な上位盤を判定できない場合はstatus=undetermined',
+            '比較用の下位盤を確認できなくても判定不能にせず'] as $text) {
             $this->assertStringContainsString($text, $prompt['prompt']);
         }
-        foreach (['過去の秘密の構図', '12345', 'historical_analysis_markdown', 'top_winners', 'recent_art_styles', 'feng_shui', 'composition_zone'] as $text) {
+        foreach (['過去の秘密の構図', '12345', 'historical_analysis_markdown', 'top_winners', 'recent_art_styles', 'feng_shui', 'composition_zone', '"references"', '判定方式はあなたが選び'] as $text) {
             $this->assertStringNotContainsString($text, $prompt['prompt']);
         }
+        $this->assertStringContainsString('参照資料の一覧や出典名・出典URLは回答・JSONに含めないでください。referencesフィールドも出力しないでください。', $prompt['prompt']);
         $this->assertSame('wallpaper-creation-2026-10-22.txt', $prompt['filename']);
         Http::assertNothingSent();
         Queue::assertNothingPushed();
     }
 
     #[DataProvider('statuses')]
-    public function test_json_and_image_are_saved_together_for_all_statuses(string $status): void
+    public function test_json_and_image_are_saved_without_requesting_a_prompt_for_all_statuses(string $status): void
     {
         $payload = Fixtures::payload(status: $status);
         $response = $this->post('/wallpapers/proposals/manual-result', $this->submission($payload));
@@ -63,7 +71,8 @@ class ManualWallpaperWorkflowTest extends TestCase
         Storage::disk('local')->assertExists($wallpaper->image_path);
         $size = getimagesizefromstring(Storage::disk('local')->get($wallpaper->image_path));
         $this->assertSame([1440, 2560], [$size[0], $size[1]]);
-        $this->get('/wallpapers/'.$wallpaper->id)->assertOk();
+        $this->get('/wallpapers/'.$wallpaper->id)->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->missing('kigaku.references'));
         $this->assertDatabaseCount('api_runs', 0);
         $this->assertDatabaseCount('analysis_snapshots', 0);
         Http::assertNothingSent();
@@ -73,6 +82,37 @@ class ManualWallpaperWorkflowTest extends TestCase
     public static function statuses(): array
     {
         return [['auspicious'], ['none'], ['undetermined']];
+    }
+
+    public function test_existing_json_with_references_can_still_be_registered_and_displayed(): void
+    {
+        $payload = Fixtures::payload();
+        $payload['kigaku']['references'] = [['title' => '作成済みJSONの参照資料', 'url' => 'https://example.com/calendar']];
+        $response = $this->post('/wallpapers/proposals/manual-result', $this->submission($payload));
+        $wallpaper = Wallpaper::query()->sole();
+        $response->assertRedirect('/wallpapers/'.$wallpaper->id)->assertSessionHasNoErrors();
+        $this->get('/wallpapers/'.$wallpaper->id)->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('kigaku.references', $payload['kigaku']['references']));
+        $this->assertStringContainsString('参照資料: 作成済みJSONの参照資料 https://example.com/calendar', $wallpaper->compositionDetails());
+    }
+
+    public function test_creation_accepts_an_empty_prompt_hash_from_the_form(): void
+    {
+        $data = $this->submission(Fixtures::payload());
+        $data['prompt_hash'] = '';
+        $this->post('/wallpapers/proposals/manual-result', $data)->assertSessionHasNoErrors();
+        $this->assertDatabaseCount('wallpapers', 1);
+        $this->assertDatabaseCount('composition_proposals', 1);
+    }
+
+    public function test_creation_still_accepts_the_displayed_prompt_hash(): void
+    {
+        $prompt = $this->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-10-22')->assertOk()->json();
+        $data = $this->submission(Fixtures::payload());
+        $data['prompt_hash'] = $prompt['prompt_hash'];
+        $this->post('/wallpapers/proposals/manual-result', $data)->assertSessionHasNoErrors();
+        $this->assertDatabaseCount('wallpapers', 1);
+        $this->assertDatabaseCount('composition_proposals', 1);
     }
 
     #[DataProvider('invalidPayloads')]
@@ -94,7 +134,8 @@ class ManualWallpaperWorkflowTest extends TestCase
             ['kigaku.candidate_directions', ['north', 'north']], ['kigaku.candidate_directions', ['outside']],
             ['kigaku.candidate_directions', []], ['kigaku.motifs', []], ['kigaku.reason', ''],
             ['kigaku.status', 'invalid'], ['kigaku.status', 'none'], ['kigaku.extra', 'unexpected'],
-            ['kigaku.references.0.url', 'javascript:alert(1)'], ['kigaku.references.0.url', 'file:///private'],
+            ['kigaku.references', [['title' => '参照資料', 'url' => 'javascript:alert(1)']]],
+            ['kigaku.references', [['title' => '参照資料', 'url' => 'file:///private']]],
             ['title', str_repeat('a', 256)], ['kigaku', null], ['feng_shui', ['flow' => '静穏']],
         ];
     }
@@ -170,6 +211,7 @@ class ManualWallpaperWorkflowTest extends TestCase
         $wallpaper = Fixtures::wallpaper('2026-10-22', attributes: ['prize_vnd' => 700, 'purchase_count' => 2]);
         $previous = $wallpaper->chosen_proposal_id;
         $prompt = $this->getJson('/wallpapers/'.$wallpaper->id.'/proposals/manual-prompt')->assertOk()->json();
+        $this->assertStringContainsString('日盤＞月盤＞年盤の優先方式', $prompt['prompt']);
         $payload = Fixtures::payload(direction: 'west');
         $this->post('/wallpapers/'.$wallpaper->id.'/proposals/manual-result', [
             'proposal_json' => json_encode($payload), 'prompt_hash' => $prompt['prompt_hash'],
@@ -244,6 +286,15 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertSame([], Storage::disk('local')->allFiles());
     }
 
+    public function test_reproposal_still_requires_a_prompt_hash(): void
+    {
+        $wallpaper = Fixtures::wallpaper('2026-10-22');
+        $this->post('/wallpapers/'.$wallpaper->id.'/proposals/manual-result', $this->submission(Fixtures::payload()))
+            ->assertSessionHasErrors('prompt_hash');
+        $this->assertSame(1, $wallpaper->proposals()->count());
+        $this->assertSame([], Storage::disk('local')->allFiles());
+    }
+
     public function test_image_only_registration_cannot_use_another_wallpapers_proposal(): void
     {
         $owner = Fixtures::wallpaper('2026-10-22');
@@ -257,11 +308,10 @@ class ManualWallpaperWorkflowTest extends TestCase
     private function submission(array $payload): array
     {
         $date = '2026-10-22';
-        $prompt = $this->getJson('/wallpapers/proposals/manual-prompt?target_date='.$date)->assertOk()->json();
 
         return [
             'target_date' => $date, 'proposal_json' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
-            'prompt_hash' => $prompt['prompt_hash'], 'image' => UploadedFile::fake()->image('wallpaper.png', 9, 16),
+            'image' => UploadedFile::fake()->image('wallpaper.png', 9, 16),
         ];
     }
 }

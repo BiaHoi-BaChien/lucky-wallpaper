@@ -52,7 +52,7 @@ class ManualWallpaperController extends Controller
         $validated = $request->validate([
             ...($wallpaper === null ? ['target_date' => ['required', 'date_format:Y-m-d']] : []),
             'proposal_json' => ['required', 'string', 'max:2000000'],
-            'prompt_hash' => ['required', 'string', 'size:64'],
+            'prompt_hash' => [$wallpaper === null ? 'nullable' : 'required', 'string', 'size:64'],
             'image' => ['required', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:20480'],
         ]);
         $targetDate = $wallpaper?->target_date->format('Y-m-d') ?? $validated['target_date'];
@@ -60,12 +60,13 @@ class ManualWallpaperController extends Controller
             $this->assertCanChange($wallpaper);
         }
         $prepared = $prompts->composition($targetDate, $wallpaper);
-        $this->assertPromptHash($prepared['prompt_hash'], $validated['prompt_hash'], 'proposal_json');
+        $promptHash = $validated['prompt_hash'] ?? $prepared['prompt_hash'];
+        $this->assertPromptHash($prepared['prompt_hash'], $promptHash, 'proposal_json');
         $result = $prompts->parseProposal($validated['proposal_json'], $targetDate);
         $stored = $this->storeUploadedImage($request, $images);
 
         try {
-            $wallpaper = DB::transaction(function () use ($wallpaper, $targetDate, $validated, $result, $prompts, $stored): Wallpaper {
+            $wallpaper = DB::transaction(function () use ($wallpaper, $targetDate, $promptHash, $result, $prompts, $stored): Wallpaper {
                 $reproposal = $wallpaper !== null;
                 if ($wallpaper === null) {
                     if (Wallpaper::query()->where('target_date', $targetDate)->lockForUpdate()->exists()) {
@@ -77,7 +78,7 @@ class ManualWallpaperController extends Controller
                     $this->assertCanChange($wallpaper);
                 }
                 $prepared = $prompts->composition($targetDate, $reproposal ? $wallpaper : null);
-                $this->assertPromptHash($prepared['prompt_hash'], $validated['prompt_hash'], 'proposal_json');
+                $this->assertPromptHash($prepared['prompt_hash'], $promptHash, 'proposal_json');
                 $proposal = $prompts->saveProposal($wallpaper, $result, $prepared['input_hash'], $reproposal);
                 $wallpaper->update(['chosen_proposal_id' => $proposal->id, ...$this->imageAttributes($stored)]);
 

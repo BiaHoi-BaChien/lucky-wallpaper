@@ -20,7 +20,7 @@ export interface Kigaku {
     reason: string;
     fallback_reason: string | null;
     motifs: { motif: string; meaning: string }[];
-    references: { title: string; url: string | null }[];
+    references?: { title: string; url: string | null }[];
 }
 export function KigakuDetails({ value }: { value: Kigaku | null }) {
     return (
@@ -45,11 +45,9 @@ export function KigakuDetails({ value }: { value: Kigaku | null }) {
                             <Entry key={index} title={motif.motif} body={motif.meaning} />
                         ))}
                     </dl>
-                    <div className="space-y-2 text-sm">
-                        <h3 className="font-medium">参照資料</h3>
-                        {value.references.length === 0 ? (
-                            <p className="text-muted-foreground">記録なし</p>
-                        ) : (
+                    {value.references && value.references.length > 0 && (
+                        <div className="space-y-2 text-sm">
+                            <h3 className="font-medium">参照資料</h3>
                             <ul className="space-y-1">
                                 {value.references.map((reference, index) => (
                                     <li key={index}>
@@ -68,8 +66,8 @@ export function KigakuDetails({ value }: { value: Kigaku | null }) {
                                     </li>
                                 ))}
                             </ul>
-                        )}
-                    </div>
+                        </div>
+                    )}
                 </>
             )}
         </section>

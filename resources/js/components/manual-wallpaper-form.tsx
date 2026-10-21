@@ -75,56 +75,59 @@ export function ManualWallpaperForm({ targetDate, wallpaperId }: { targetDate: s
                 {loading ? '作成中' : '壁紙作成プロンプトを作成'}
             </Button>
             <InputError message={promptError ?? form.errors.target_date} />
-            {prompt && (
-                <>
-                    <ManualPromptPanel prompt={prompt} title="壁紙作成プロンプト" />
-                    <form onSubmit={save} className="border-t pt-4">
-                        <fieldset disabled={busy} className="min-w-0 space-y-4">
-                            <legend className="mb-3 font-medium">構図JSONと壁紙画像を登録</legend>
-                            <ManualResultField
-                                id="proposal_json"
-                                label="構図の説明JSON"
-                                value={form.data.proposal_json}
-                                onChange={(value) => {
-                                    form.setData('proposal_json', value);
-                                    form.clearErrors('proposal_json');
+            {prompt && <ManualPromptPanel prompt={prompt} title="壁紙作成プロンプト" />}
+            {(wallpaperId === undefined || prompt) && (
+                <form onSubmit={save} className="border-t pt-4">
+                    <fieldset disabled={busy} className="min-w-0 space-y-4">
+                        <legend className="mb-3 font-medium">構図JSONと壁紙画像を登録</legend>
+                        {wallpaperId === undefined && (
+                            <p className="text-muted-foreground text-sm">
+                                プロンプトを表示していなくても、対象日に対応するJSONと画像を登録できます。
+                            </p>
+                        )}
+                        <ManualResultField
+                            id="proposal_json"
+                            label="構図の説明JSON"
+                            value={form.data.proposal_json}
+                            onChange={(value) => {
+                                form.setData('proposal_json', value);
+                                form.clearErrors('proposal_json');
+                            }}
+                            placeholder="AIから返されたJSONを貼り付けます"
+                            fileAccept=".json,.txt,application/json,text/plain"
+                            fileDescription="JSON・テキスト（UTF-8）、最大2,000,000文字"
+                            maxLength={2_000_000}
+                            error={form.errors.proposal_json}
+                        />
+                        <div className="space-y-2">
+                            <Label htmlFor="creation_image">壁紙画像</Label>
+                            <Input
+                                id="creation_image"
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp"
+                                onChange={(event) => {
+                                    form.setData('image', event.target.files?.[0] ?? null);
+                                    form.clearErrors('image');
                                 }}
-                                placeholder="AIから返されたJSONを貼り付けます"
-                                fileAccept=".json,.txt,application/json,text/plain"
-                                fileDescription="JSON・テキスト（UTF-8）、最大2,000,000文字"
-                                maxLength={2_000_000}
-                                error={form.errors.proposal_json}
                             />
-                            <div className="space-y-2">
-                                <Label htmlFor="creation_image">壁紙画像</Label>
-                                <Input
-                                    id="creation_image"
-                                    type="file"
-                                    accept="image/jpeg,image/png,image/webp"
-                                    onChange={(event) => {
-                                        form.setData('image', event.target.files?.[0] ?? null);
-                                        form.clearErrors('image');
-                                    }}
-                                />
-                                <p className="text-muted-foreground text-sm">JPEG・PNG・WebP、最大20MB</p>
-                                <InputError message={form.errors.image} />
-                                {preview && (
-                                    <img src={preview} alt="登録する壁紙画像のプレビュー" className="max-h-80 max-w-full rounded-md object-contain" />
-                                )}
-                            </div>
-                            <InputError message={form.errors.prompt_hash} />
-                            {form.progress && (
-                                <p className="text-muted-foreground text-sm" role="status">
-                                    アップロード中: {form.progress.percentage}%
-                                </p>
+                            <p className="text-muted-foreground text-sm">JPEG・PNG・WebP、最大20MB</p>
+                            <InputError message={form.errors.image} />
+                            {preview && (
+                                <img src={preview} alt="登録する壁紙画像のプレビュー" className="max-h-80 max-w-full rounded-md object-contain" />
                             )}
-                            <Button type="submit" disabled={busy || !form.data.image || !form.data.proposal_json.trim()}>
-                                {form.processing && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-                                {form.processing ? '登録中' : '構図と壁紙を登録'}
-                            </Button>
-                        </fieldset>
-                    </form>
-                </>
+                        </div>
+                        <InputError message={form.errors.prompt_hash} />
+                        {form.progress && (
+                            <p className="text-muted-foreground text-sm" role="status">
+                                アップロード中: {form.progress.percentage}%
+                            </p>
+                        )}
+                        <Button type="submit" disabled={busy || !form.data.image || !form.data.proposal_json.trim()}>
+                            {form.processing && <LoaderCircle className="animate-spin" aria-hidden="true" />}
+                            {form.processing ? '登録中' : '構図と壁紙を登録'}
+                        </Button>
+                    </fieldset>
+                </form>
             )}
         </section>
     );

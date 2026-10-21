@@ -8,10 +8,12 @@ use App\Models\User;
 use App\Models\Wallpaper;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class WallpaperWorkflowTest extends TestCase
@@ -207,12 +209,15 @@ class WallpaperWorkflowTest extends TestCase
 
     public function test_local_image_is_displayed_as_an_inline_preview(): void
     {
+        config(['lucky.notion.token' => 'test']);
         Storage::fake('local');
+        Http::preventStrayRequests();
         $user = User::factory()->create();
         $wallpaper = Wallpaper::factory()->create([
             'image_disk' => 'local',
             'image_path' => 'wallpapers/preview.jpg',
             'image_mime' => 'image/jpeg',
+            'notion_page_id' => 'notion-page-id',
         ]);
         Storage::disk('local')->put('wallpapers/preview.jpg', 'image-bytes');
 
@@ -229,6 +234,11 @@ class WallpaperWorkflowTest extends TestCase
                 ->component('wallpapers/show', false)
                 ->where('localImageAvailable', true)
                 ->where('downloadAvailable', true));
+
+        $this->get('/results?date='.$wallpaper->target_date->format('Y-m-d'))
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('imageAvailable', true));
+
+        Http::assertNothingSent();
     }
 
     public function test_notion_html_is_rejected_instead_of_being_displayed_inline(): void
@@ -356,7 +366,7 @@ class WallpaperWorkflowTest extends TestCase
             ->assertStatus(502);
     }
 
-    public function test_missing_local_image_is_not_displayed_as_a_preview(): void
+    public function test_missing_local_image_uses_a_verified_notion_image(): void
     {
         config(['lucky.notion.token' => 'test']);
         Storage::fake('local');
@@ -366,6 +376,10 @@ class WallpaperWorkflowTest extends TestCase
             'image_path' => 'wallpapers/missing.jpg',
             'notion_page_id' => 'notion-page-id',
         ]);
+        Http::preventStrayRequests();
+        Http::fake([
+            'api.notion.com/v1/pages/notion-page-id' => Http::response($this->notionPage('https://files.example.com/wallpaper.jpg')),
+        ]);
 
         $this->actingAs($user)->get("/wallpapers/{$wallpaper->id}")
             ->assertInertia(fn (AssertableInertia $page) => $page
@@ -373,6 +387,119 @@ class WallpaperWorkflowTest extends TestCase
                 ->where('localImageAvailable', false)
                 ->where('downloadAvailable', true)
                 ->where('downloadUnavailableReason', null));
+
+        $this->get('/results?date='.$wallpaper->target_date->format('Y-m-d'))
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('imageAvailable', true));
+
+        Http::assertSentCount(2);
+    }
+
+    public function test_notion_page_without_a_wallpaper_file_does_not_offer_image_controls(): void
+    {
+        config(['lucky.notion.token' => 'test']);
+        Http::preventStrayRequests();
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create([
+            'source' => 'notion',
+            'state' => 'imported',
+            'composition' => '画像のないNotionページから取り込んだ構図の説明',
+            'notion_page_id' => 'notion-page-id',
+        ]);
+        Http::fake([
+            'api.notion.com/v1/pages/notion-page-id' => Http::sequence()
+                ->push(['properties' => [config('lucky.notion.property_wallpaper') => ['files' => []]]])
+                ->push(['properties' => []]),
+        ]);
+
+        $this->actingAs($user)->get("/wallpapers/{$wallpaper->id}")
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('wallpapers/show', false)
+                ->where('wallpaper.composition', $wallpaper->composition)
+                ->where('localImageAvailable', false)
+                ->where('downloadAvailable', false));
+
+        $this->get('/results?date='.$wallpaper->target_date->format('Y-m-d'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('wallpaper.composition', $wallpaper->composition)
+                ->where('imageAvailable', false));
+
+        Http::assertSentCount(2);
+    }
+
+    #[DataProvider('unavailableNotionStatuses')]
+    public function test_notion_page_lookup_failure_keeps_the_detail_and_result_pages_available(int $status): void
+    {
+        config(['lucky.notion.token' => 'test']);
+        Http::preventStrayRequests();
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create(['notion_page_id' => 'notion-page-id']);
+        Http::fake([
+            'api.notion.com/v1/pages/notion-page-id' => function (Request $request, array $options) use ($status) {
+                $this->assertSame(3, $options['timeout']);
+                $this->assertSame(2, $options['connect_timeout']);
+                $this->assertFalse($options['allow_redirects']);
+
+                return Http::response(['code' => 'unavailable'], $status, ['Retry-After' => '1']);
+            },
+        ]);
+
+        $this->actingAs($user)->get("/wallpapers/{$wallpaper->id}")
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('wallpaper.composition', $wallpaper->composition)
+                ->where('downloadAvailable', false)
+                ->where('downloadUnavailableReason', 'Notionバックアップの画像を確認できませんでした。Notionページの画像ファイルと接続設定を確認してください。'));
+        Http::assertSentCount(1);
+
+        $this->get('/results?date='.$wallpaper->target_date->format('Y-m-d'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('imageAvailable', false));
+
+        Http::assertSentCount(2);
+    }
+
+    public static function unavailableNotionStatuses(): array
+    {
+        return ['missing page' => [404], 'rate limit' => [429], 'service unavailable' => [503]];
+    }
+
+    public function test_notion_connection_failure_keeps_the_detail_and_result_pages_available(): void
+    {
+        config(['lucky.notion.token' => 'test']);
+        Http::preventStrayRequests();
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create(['notion_page_id' => 'notion-page-id']);
+        Http::fake(['api.notion.com/v1/pages/notion-page-id' => Http::failedConnection()]);
+
+        $this->actingAs($user)->get("/wallpapers/{$wallpaper->id}")
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('wallpaper.composition', $wallpaper->composition)
+                ->where('downloadAvailable', false));
+
+        $this->get('/results?date='.$wallpaper->target_date->format('Y-m-d'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('imageAvailable', false));
+    }
+
+    public function test_wallpaper_without_a_local_image_or_notion_page_does_not_call_notion(): void
+    {
+        config(['lucky.notion.token' => 'test']);
+        Http::preventStrayRequests();
+        $user = User::factory()->create();
+        $wallpaper = Wallpaper::factory()->create();
+
+        $this->actingAs($user)->get("/wallpapers/{$wallpaper->id}")
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('downloadAvailable', false)
+                ->where('downloadUnavailableReason', null));
+
+        $this->get('/results?date='.$wallpaper->target_date->format('Y-m-d'))
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('imageAvailable', false));
+
+        Http::assertNothingSent();
     }
 
     private function notionPage(string $fileUrl): array

@@ -36,6 +36,28 @@ class NotionClientTest extends TestCase
         $this->assertSame('2026-07-28', $candidate['target_date']);
     }
 
+    public function test_normal_page_fetch_keeps_its_retry_budget_after_an_image_availability_check(): void
+    {
+        config(['lucky.notion.token' => 'test']);
+        Http::preventStrayRequests();
+        $page = $this->notionPage('page-id', '2026-10-21T00:00:00.000Z');
+        $timeouts = [];
+        Http::fake([
+            'api.notion.com/v1/pages/page-id' => function (Request $request, array $options) use ($page, &$timeouts) {
+                $timeouts[] = $options['timeout'];
+
+                return count($timeouts) < 3 ? Http::response([], 503) : Http::response($page);
+            },
+        ]);
+        $notion = app(NotionClient::class);
+
+        $this->assertFalse($notion->hasWallpaperImage('page-id'));
+        Http::assertSentCount(1);
+        $this->assertSame($page, $notion->getPage('page-id'));
+        $this->assertSame([3, 60, 60], $timeouts);
+        Http::assertSentCount(3);
+    }
+
     public function test_block_body_paginates_and_empty_body_remains_empty(): void
     {
         config(['lucky.notion.token' => 'test']);
