@@ -30,7 +30,6 @@ composer install --no-dev --optimize-autoloader
 npm ci
 npm run build
 php artisan config:cache
-php artisan route:cache
 php artisan view:cache
 ```
 
@@ -62,7 +61,7 @@ php artisan migrate --force
 - ルート`.htaccess`で`.env`、ソース、依存関係、DB、ログ、旧`public/`への直接アクセスを拒否
 - 本番の`.env`、`storage/`、生成済みキャッシュを転送・削除対象から除外
 - `php artisan migrate --force`で未適用のDBマイグレーションを実行
-- Laravelの設定、ルート、ビューキャッシュを再生成
+- Laravelの設定、ビューキャッシュを再生成
 - 失敗時も可能な範囲でメンテナンスモードを解除
 - より新しい`main`が存在する場合は古いコミットのデプロイをスキップ
 
@@ -136,7 +135,7 @@ hPanelには毎分1本だけ登録します。
 Laravel Schedulerが毎分、次相当のDBキューワーカーを起動します。
 
 ```bash
-php artisan queue:work database --queue=default,integrations,openai --stop-when-empty --max-jobs=10 --max-time=240 --tries=3
+php artisan queue:work database --queue=default,integrations --stop-when-empty --max-jobs=10 --max-time=240 --tries=3
 ```
 
 cron間隔により、UI操作から処理開始まで最大約1分待つ場合があります。
@@ -155,7 +154,18 @@ cron間隔により、UI操作から処理開始まで最大約1分待つ場合�
 - `PASSKEYS_USER_HANDLE_SECRET`
 - `NOTION_TOKEN`（Notionバックアップを利用する場合のみ）
 - `NOTION_DATA_SOURCE_ID`（Notionバックアップを利用する場合のみ）
-- `OPENAI_API_KEY`
-- モデル名とタイムアウト
 
 秘密値をログ、DB、リポジトリへ保存しないでください。
+
+
+## 九星気学・手動専用版への切替
+
+この版はDB構造を変更せず、旧壁紙・実績・分析履歴・残キューデータを保持します。AI APIルートと生成ジョブは廃止しました。
+
+1. 切替前に、常駐ワーカーや別cronでopenaiキューを処理しているものを停止します。進行中の旧AI処理がないことを確認してから新しいコードへ切り替えます。
+2. 設定キャッシュを再生成し、queue:restartで旧ワーカーを再起動します。常駐ワーカーを独自に管理している場合は、その管理プロセスから停止・起動します。
+3. schedule:listでdefault,integrationsのみが処理対象であることを確認します。残っているopenaiキューは処理・再試行・削除しません。
+4. 旧OPENAI_*環境変数は新コードでは参照しません。アプリは外部AIへAPI送信しません。Notion連携には引き続きintegrationsキューを使用します。
+5. ログイン、作成プロンプト取得、JSONと画像の一括登録、実績登録、主方位別集計、期間・方位別履歴、既存画像の表示とNotion復元を確認します。
+
+外部AIでの判定・構図・画像の作成、および同じ実画像の表示と保存は、アプリの入力テストとは別に手動で確認します。

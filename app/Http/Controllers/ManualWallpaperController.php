@@ -3,11 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\ExternalApiException;
-use App\Models\ApiRun;
 use App\Models\CompositionProposal;
+use App\Models\SyncRun;
 use App\Models\Wallpaper;
 use App\Services\ImageService;
+use App\Services\KigakuPolicy;
 use App\Services\WallpaperPromptService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -20,200 +22,124 @@ class ManualWallpaperController extends Controller
 {
     public function proposalPrompt(Request $request, WallpaperPromptService $prompts): JsonResponse
     {
-        $validated = $request->validate([
-            'target_date' => ['required', 'date_format:Y-m-d'],
-        ]);
+        $validated = $request->validate(['target_date' => ['required', 'date_format:Y-m-d']]);
         if (Wallpaper::query()->where('target_date', $validated['target_date'])->exists()) {
-            throw ValidationException::withMessages([
-                'target_date' => 'この日付の壁紙は登録済みです。',
-            ]);
+            throw ValidationException::withMessages(['target_date' => 'この日付の壁紙は登録済みです。']);
         }
 
-        return response()->json(
-            $this->promptResponse($this->prepareComposition($prompts, $validated['target_date'], allowWithoutCurrentAnalysis: true, includeImage: true)),
-        );
+        return response()->json($this->promptResponse($prompts->composition($validated['target_date'])));
     }
 
-    public function storeProposal(
-        Request $request,
-        WallpaperPromptService $prompts,
-        ImageService $images,
-    ): RedirectResponse {
+    public function storeProposal(Request $request, WallpaperPromptService $prompts, ImageService $images): RedirectResponse
+    {
+        return $this->storeComposition($request, $prompts, $images);
+    }
+
+    public function reproposalPrompt(Wallpaper $wallpaper, WallpaperPromptService $prompts): JsonResponse
+    {
+        $this->assertCanChange($wallpaper);
+
+        return response()->json($this->promptResponse($prompts->composition($wallpaper->target_date->format('Y-m-d'), $wallpaper)));
+    }
+
+    public function storeReproposal(Request $request, Wallpaper $wallpaper, WallpaperPromptService $prompts, ImageService $images): RedirectResponse
+    {
+        return $this->storeComposition($request, $prompts, $images, $wallpaper);
+    }
+
+    private function storeComposition(Request $request, WallpaperPromptService $prompts, ImageService $images, ?Wallpaper $wallpaper = null): RedirectResponse
+    {
         $validated = $request->validate([
-            'target_date' => ['required', 'date_format:Y-m-d'],
+            ...($wallpaper === null ? ['target_date' => ['required', 'date_format:Y-m-d']] : []),
             'proposal_json' => ['required', 'string', 'max:2000000'],
             'prompt_hash' => ['required', 'string', 'size:64'],
             'image' => ['required', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:20480'],
         ]);
-        $this->rejectActiveRun('composition_proposal');
-        $prepared = $this->prepareComposition($prompts, $validated['target_date'], allowWithoutCurrentAnalysis: true, includeImage: true);
+        $targetDate = $wallpaper?->target_date->format('Y-m-d') ?? $validated['target_date'];
+        if ($wallpaper !== null) {
+            $this->assertCanChange($wallpaper);
+        }
+        $prepared = $prompts->composition($targetDate, $wallpaper);
         $this->assertPromptHash($prepared['prompt_hash'], $validated['prompt_hash'], 'proposal_json');
-        $result = $prompts->parseProposal($validated['proposal_json']);
+        $result = $prompts->parseProposal($validated['proposal_json'], $targetDate);
         $stored = $this->storeUploadedImage($request, $images);
 
         try {
-            $wallpaper = DB::transaction(function () use ($validated, $prepared, $result, $prompts, $stored): Wallpaper {
-                $existing = Wallpaper::query()
-                    ->where('target_date', $validated['target_date'])
-                    ->lockForUpdate()
-                    ->first();
-                if ($existing !== null) {
-                    throw ValidationException::withMessages([
-                        'target_date' => 'この日付の壁紙は登録済みです。',
-                    ]);
+            $wallpaper = DB::transaction(function () use ($wallpaper, $targetDate, $validated, $result, $prompts, $stored): Wallpaper {
+                $reproposal = $wallpaper !== null;
+                if ($wallpaper === null) {
+                    if (Wallpaper::query()->where('target_date', $targetDate)->lockForUpdate()->exists()) {
+                        throw ValidationException::withMessages(['target_date' => 'この日付の壁紙は登録済みです。']);
+                    }
+                    $wallpaper = Wallpaper::query()->create(['target_date' => $targetDate, 'source' => 'generated', 'state' => 'draft']);
+                } else {
+                    $wallpaper = Wallpaper::query()->lockForUpdate()->findOrFail($wallpaper->id);
+                    $this->assertCanChange($wallpaper);
                 }
-
-                $wallpaper = Wallpaper::query()->create([
-                    'target_date' => $validated['target_date'],
-                    'source' => 'generated',
-                    'state' => 'draft',
-                ]);
-                $proposal = $prompts->saveProposal($wallpaper, $result, $prepared['input_hash'], false, allowWithoutCurrentAnalysis: true);
-                $proposal->update(['status' => 'approved']);
-                $wallpaper->update([
-                    'chosen_proposal_id' => $proposal->id,
-                    'image_disk' => $stored['disk'],
-                    'image_path' => $stored['path'],
-                    'image_mime' => $stored['mime'],
-                    'image_bytes' => $stored['bytes'],
-                    'image_sha256' => $stored['sha256'],
-                    'state' => 'generated',
-                ]);
+                $prepared = $prompts->composition($targetDate, $reproposal ? $wallpaper : null);
+                $this->assertPromptHash($prepared['prompt_hash'], $validated['prompt_hash'], 'proposal_json');
+                $proposal = $prompts->saveProposal($wallpaper, $result, $prepared['input_hash'], $reproposal);
+                $wallpaper->update(['chosen_proposal_id' => $proposal->id, ...$this->imageAttributes($stored)]);
 
                 return $wallpaper;
             });
         } catch (Throwable $exception) {
             Storage::disk($stored['disk'])->delete($stored['path']);
-            if ($exception instanceof ExternalApiException && $exception->errorCode === 'composition_prompt_stale') {
-                throw ValidationException::withMessages([
-                    'proposal_json' => '元データが更新されています。プロンプトを再作成してください。',
-                ]);
+            if ($exception instanceof UniqueConstraintViolationException) {
+                throw ValidationException::withMessages(['target_date' => 'この日付の壁紙は登録済みです。']);
             }
-
+            if ($exception instanceof ExternalApiException && $exception->errorCode === 'composition_prompt_stale') {
+                throw ValidationException::withMessages(['proposal_json' => '元データが更新されています。プロンプトを再作成してください。']);
+            }
             throw $exception;
         }
 
-        return to_route('wallpapers.show', ['wallpaper' => $wallpaper])
-            ->with('status', '構図の説明と壁紙画像を登録しました。');
+        return to_route('wallpapers.show', ['wallpaper' => $wallpaper])->with('status', '構図の説明と壁紙画像を登録しました。');
     }
 
-    public function reproposalPrompt(
-        Wallpaper $wallpaper,
-        WallpaperPromptService $prompts,
-    ): JsonResponse {
-        $this->rejectActiveRun('composition_proposal', $wallpaper);
-        $reproposal = $wallpaper->proposals()->exists();
-
-        return response()->json($this->promptResponse(
-            $this->prepareComposition(
-                $prompts,
-                $wallpaper->target_date->format('Y-m-d'),
-                $wallpaper,
-                $reproposal,
-            ),
-        ));
-    }
-
-    public function storeReproposal(
-        Request $request,
-        Wallpaper $wallpaper,
-        WallpaperPromptService $prompts,
-    ): RedirectResponse {
-        $validated = $request->validate([
-            'proposal_json' => ['required', 'string', 'max:2000000'],
-            'prompt_hash' => ['required', 'string', 'size:64'],
-        ]);
-        $this->rejectActiveRun('composition_proposal', $wallpaper);
-        $reproposal = $wallpaper->proposals()->exists();
-        $prepared = $this->prepareComposition(
-            $prompts,
-            $wallpaper->target_date->format('Y-m-d'),
-            $wallpaper,
-            $reproposal,
-        );
-        $this->assertPromptHash($prepared['prompt_hash'], $validated['prompt_hash'], 'proposal_json');
-        $result = $prompts->parseProposal($validated['proposal_json']);
-        $prompts->saveProposal($wallpaper, $result, $prepared['input_hash'], $reproposal);
-
-        return back()->with('status', 'ChatGPTの構図提案を保存しました。');
-    }
-
-    public function imagePrompt(
-        Request $request,
-        Wallpaper $wallpaper,
-        WallpaperPromptService $prompts,
-    ): JsonResponse {
-        $validated = $request->validate([
-            'proposal_id' => ['nullable', 'integer'],
-        ]);
-        $this->rejectActiveRun('image_generation', $wallpaper);
+    public function imagePrompt(Request $request, Wallpaper $wallpaper, WallpaperPromptService $prompts): JsonResponse
+    {
+        $validated = $request->validate(['proposal_id' => ['nullable', 'integer']]);
         $proposal = $this->proposal($wallpaper, $validated['proposal_id'] ?? null);
-        if ($proposal === null && ! $this->hasCompositionDetails($wallpaper)) {
-            throw ValidationException::withMessages([
-                'image' => '画像作成に必要な構図の詳細がありません。',
-            ]);
-        }
+        $this->assertHasComposition($wallpaper, $proposal);
 
         return response()->json($this->promptResponse($prompts->image($wallpaper, $proposal)));
     }
 
-    public function storeImage(
-        Request $request,
-        Wallpaper $wallpaper,
-        WallpaperPromptService $prompts,
-        ImageService $images,
-    ): RedirectResponse {
+    public function storeImage(Request $request, Wallpaper $wallpaper, WallpaperPromptService $prompts, ImageService $images): RedirectResponse
+    {
         $validated = $request->validate([
             'proposal_id' => ['nullable', 'integer'],
             'prompt_hash' => ['nullable', 'string', 'size:64'],
             'image' => ['required', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:20480'],
         ]);
-        $this->rejectActiveRun('image_generation', $wallpaper);
-        if ($this->hasLocalImage($wallpaper)) {
-            throw ValidationException::withMessages(['image' => '画像は既に保存されています。']);
-        }
-
+        $this->assertCanChange($wallpaper);
         $proposal = $this->proposal($wallpaper, $validated['proposal_id'] ?? null);
-        if ($proposal === null && ! $this->hasCompositionDetails($wallpaper)) {
-            throw ValidationException::withMessages([
-                'image' => '画像作成に必要な構図の詳細がありません。',
-            ]);
-        }
+        $this->assertHasComposition($wallpaper, $proposal);
         $promptHash = $validated['prompt_hash'] ?? null;
         if ($promptHash !== null) {
-            $prepared = $prompts->image($wallpaper, $proposal);
-            $this->assertPromptHash($prepared['prompt_hash'], $promptHash, 'image');
+            $this->assertPromptHash($prompts->image($wallpaper, $proposal)['prompt_hash'], $promptHash, 'image');
         }
-
         $stored = $this->storeUploadedImage($request, $images);
-
         try {
             DB::transaction(function () use ($wallpaper, $validated, $stored, $prompts, $promptHash): void {
                 $wallpaper = Wallpaper::query()->lockForUpdate()->findOrFail($wallpaper->id);
-                if ($this->hasLocalImage($wallpaper)) {
-                    throw ValidationException::withMessages(['image' => '画像は既に保存されています。']);
-                }
-                $currentProposal = $this->proposal($wallpaper, $validated['proposal_id'] ?? null);
+                $this->assertCanChange($wallpaper);
+                $proposal = $this->proposal($wallpaper, $validated['proposal_id'] ?? null);
+                $this->assertHasComposition($wallpaper, $proposal);
                 if ($promptHash !== null) {
-                    $currentPrompt = $prompts->image($wallpaper, $currentProposal);
-                    $this->assertPromptHash($currentPrompt['prompt_hash'], $promptHash, 'image');
+                    $this->assertPromptHash($prompts->image($wallpaper, $proposal)['prompt_hash'], $promptHash, 'image');
                 }
-
-                if ($currentProposal !== null) {
-                    $wallpaper->proposals()
-                        ->where('status', 'proposed')
-                        ->whereKeyNot($currentProposal->id)
-                        ->update(['status' => 'rejected']);
-                    $currentProposal->update(['status' => 'approved']);
+                $details = [];
+                if ($proposal !== null) {
+                    $wallpaper->proposals()->where('status', 'proposed')->whereKeyNot($proposal->id)->update(['status' => 'rejected']);
+                    $proposal->update(['status' => 'approved']);
+                    $details = $proposal->only([...KigakuPolicy::COMPOSITION_FIELDS, 'composition_zone']);
                 }
                 $wallpaper->update([
-                    'chosen_proposal_id' => $currentProposal->id ?? $wallpaper->chosen_proposal_id,
-                    'image_disk' => $stored['disk'],
-                    'image_path' => $stored['path'],
-                    'image_mime' => $stored['mime'],
-                    'image_bytes' => $stored['bytes'],
-                    'image_sha256' => $stored['sha256'],
-                    'state' => 'generated',
+                    ...$details,
+                    'chosen_proposal_id' => $proposal->id ?? $wallpaper->chosen_proposal_id,
+                    ...$this->imageAttributes($stored),
                 ]);
             });
         } catch (Throwable $exception) {
@@ -224,59 +150,39 @@ class ManualWallpaperController extends Controller
         return back()->with('status', '画像を保存しました。');
     }
 
+    private function imageAttributes(array $stored): array
+    {
+        return [
+            'image_disk' => $stored['disk'], 'image_path' => $stored['path'],
+            'image_mime' => $stored['mime'], 'image_bytes' => $stored['bytes'],
+            'image_sha256' => $stored['sha256'], 'state' => 'generated',
+        ];
+    }
+
     private function storeUploadedImage(Request $request, ImageService $images): array
     {
         $bytes = $request->file('image')?->get();
         if (! is_string($bytes) || $bytes === '') {
             throw ValidationException::withMessages(['image' => '画像ファイルを読み取れませんでした。']);
         }
-
         try {
             return $images->normalizeAndStore($bytes);
         } catch (ExternalApiException $exception) {
             throw ValidationException::withMessages([
                 'image' => $exception->errorCode === 'invalid_generated_image'
-                    ? '対応している画像ファイルを選択してください。'
-                    : '画像を保存できませんでした。',
+                    ? '対応している画像ファイルを選択してください。' : '画像を保存できませんでした。',
             ]);
         }
     }
 
-    private function prepareComposition(
-        WallpaperPromptService $prompts,
-        string $targetDate,
-        ?Wallpaper $wallpaper = null,
-        bool $reproposal = false,
-        bool $allowWithoutCurrentAnalysis = false,
-        bool $includeImage = false,
-    ): array {
-        try {
-            return $prompts->composition($targetDate, $wallpaper, $reproposal, $allowWithoutCurrentAnalysis, $includeImage);
-        } catch (ExternalApiException $exception) {
-            if ($exception->errorCode === 'historical_analysis_required') {
-                throw ValidationException::withMessages([
-                    'proposal_json' => '最新の傾向分析を完了してから構図を提案してください。',
-                ]);
-            }
-
-            throw $exception;
-        }
-    }
-
-    private function rejectActiveRun(string $type, ?Wallpaper $wallpaper = null): void
+    private function assertCanChange(Wallpaper $wallpaper): void
     {
-        $query = ApiRun::query()
-            ->where('type', $type)
-            ->whereIn('status', ['queued', 'running']);
-        if ($wallpaper !== null) {
-            $query
-                ->where('subject_type', $wallpaper->getMorphClass())
-                ->where('subject_id', $wallpaper->id);
+        if ($wallpaper->image_disk !== null && $wallpaper->image_path !== null
+            && Storage::disk($wallpaper->image_disk)->exists($wallpaper->image_path)) {
+            throw ValidationException::withMessages(['image' => '画像は既に保存されています。']);
         }
-        if ($query->exists()) {
-            throw ValidationException::withMessages([
-                $type === 'image_generation' ? 'image' : 'proposal_json' => 'API処理が実行中です。完了後に操作してください。',
-            ]);
+        if (SyncRun::query()->where('wallpaper_id', $wallpaper->id)->whereIn('status', ['queued', 'running'])->exists()) {
+            throw ValidationException::withMessages(['image' => 'Notionの処理中です。完了後に操作してください。']);
         }
     }
 
@@ -286,47 +192,26 @@ class ManualWallpaperController extends Controller
             return null;
         }
 
-        return CompositionProposal::query()
-            ->where('wallpaper_id', $wallpaper->id)
-            ->whereKey($proposalId)
-            ->firstOrFail();
+        return $wallpaper->proposals()->whereKey($proposalId)->whereIn('status', ['approved', 'proposed'])->firstOrFail();
     }
 
-    private function hasCompositionDetails(Wallpaper $wallpaper): bool
+    private function assertHasComposition(Wallpaper $wallpaper, ?CompositionProposal $proposal): void
     {
-        return collect([
-            $wallpaper->title,
-            $wallpaper->conclusion,
-            $wallpaper->overview,
-            $wallpaper->composition,
-            $wallpaper->color_wu_xing,
-            $wallpaper->symbolism,
-        ])->contains(fn (?string $value): bool => $value !== null && trim($value) !== '');
-    }
-
-    private function hasLocalImage(Wallpaper $wallpaper): bool
-    {
-        return $wallpaper->image_disk !== null
-            && $wallpaper->image_path !== null
-            && Storage::disk($wallpaper->image_disk)->exists($wallpaper->image_path);
+        if ($proposal === null && ! collect($wallpaper->only(KigakuPolicy::COMPOSITION_FIELDS))
+            ->contains(fn (?string $value): bool => $value !== null && trim($value) !== '')) {
+            throw ValidationException::withMessages(['image' => '画像作成に必要な構図の詳細がありません。']);
+        }
     }
 
     private function assertPromptHash(string $expected, string $actual, string $field): void
     {
         if (! hash_equals($expected, $actual)) {
-            throw ValidationException::withMessages([
-                $field => '元データが更新されています。プロンプトを再作成してください。',
-            ]);
+            throw ValidationException::withMessages([$field => '元データが更新されています。プロンプトを再作成してください。']);
         }
     }
 
     private function promptResponse(array $prepared): array
     {
-        return [
-            'prompt' => $prepared['prompt'],
-            'prompt_hash' => $prepared['prompt_hash'],
-            'context_hash' => $prepared['context_hash'],
-            'filename' => $prepared['filename'],
-        ];
+        return array_intersect_key($prepared, array_flip(['prompt', 'prompt_hash', 'context_hash', 'filename']));
     }
 }

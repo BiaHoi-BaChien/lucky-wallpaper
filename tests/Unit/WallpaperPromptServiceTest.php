@@ -4,7 +4,6 @@ namespace Tests\Unit;
 
 use App\Models\Wallpaper;
 use App\Services\WallpaperPromptService;
-use Illuminate\Validation\ValidationException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
@@ -28,9 +27,6 @@ class WallpaperPromptServiceTest extends TestCase
         ]);
 
         $prompt = app(WallpaperPromptService::class)->image($wallpaper)['prompt'];
-        $this->assertStringContainsString('制作上の必須条件', $prompt);
-        $this->assertStringContainsString('画面外へ流出する水や道は禁止', $prompt);
-        $this->assertStringContainsString('元の構図説明が矛盾する場合', $prompt);
 
         foreach ($included as $text) {
             $this->assertStringContainsString($text, $prompt);
@@ -89,90 +85,6 @@ class WallpaperPromptServiceTest extends TestCase
             ],
             'empty symbolism' => ['', [], []],
             'missing symbolism' => [null, [], []],
-        ];
-    }
-
-    #[DataProvider('invalidFengShuiSelections')]
-    public function test_proposal_rejects_invalid_feng_shui_selections(mixed $selection): void
-    {
-        try {
-            app(WallpaperPromptService::class)->parseProposal(json_encode($this->proposalPayload($selection), JSON_THROW_ON_ERROR));
-            $this->fail('A proposal outside the feng shui policy must not be accepted.');
-        } catch (ValidationException $exception) {
-            $this->assertArrayHasKey('proposal_json', $exception->errors());
-            $this->assertStringContainsString('風水', $exception->errors()['proposal_json'][0]);
-        }
-    }
-
-    public function test_color_names_are_not_blacklisted_when_a_supported_assessment_is_supplied(): void
-    {
-        foreach (['赤' => '火', '青' => '水', '緑' => '木', '黒' => '水', '紫' => '火'] as $color => $element) {
-            $selection = [
-                'palette' => [
-                    ['color' => 'ベージュ', 'element' => '土', 'role' => '主色'],
-                    ['color' => $color, 'element' => $element, 'role' => '差し色'],
-                ],
-                'color_judgement' => '吉',
-                'color_reason' => 'ベージュの土生金を軸に、'.$color.'は低彩度の小さな差し色として全体と調和させる。',
-                'flow' => '内向き',
-                'structure' => '安定した矩形',
-            ];
-            $payload = $this->proposalPayload($selection);
-            $payload['color_wu_xing'] = 'ベージュを主色に、'.$color.'を小さな差し色として配する。';
-
-            $parsed = app(WallpaperPromptService::class)->parseProposal(json_encode($payload, JSON_THROW_ON_ERROR));
-
-            $this->assertSame($selection, $parsed['feng_shui']);
-        }
-    }
-
-    private function proposalPayload(mixed $selection): array
-    {
-        $payload = [
-            'title' => '白い庭',
-            'art_style' => '実写写真',
-            'conclusion' => '白い庭 × 実写写真',
-            'overview' => '白い庭と金色の光。',
-            'composition' => '丸みのある石を安定した重心で置く。',
-            'composition_zone' => 'center',
-            'color_wu_xing' => '白と金。',
-            'symbolism' => '金の比和を採用。',
-        ];
-        if ($selection !== null) {
-            $payload['feng_shui'] = $selection;
-        }
-
-        return $payload;
-    }
-
-    public static function invalidFengShuiSelections(): array
-    {
-        $color = ['color' => '白', 'element' => '金', 'role' => '主色'];
-        $valid = [
-            'palette' => [$color],
-            'color_judgement' => '吉',
-            'color_reason' => '白の金と本命星の金の比和を軸に、穏やかな明暗で整える。',
-            'flow' => '静穏',
-            'structure' => '丸み',
-        ];
-        $withoutReason = $valid;
-        unset($withoutReason['color_reason']);
-
-        return [
-            'missing review' => [null],
-            'unstructured declaration' => ['吉です'],
-            'inauspicious assessment' => [[...$valid, 'color_judgement' => '凶']],
-            'unknown assessment' => [[...$valid, 'color_judgement' => '判断不能']],
-            'unsupported element' => [[...$valid, 'palette' => [[...$color, 'element' => '空']]]],
-            'missing dominant color' => [[...$valid, 'palette' => [[...$color, 'role' => '差し色']]]],
-            'missing reason' => [$withoutReason],
-            'empty palette' => [[...$valid, 'palette' => []]],
-            'duplicate palette' => [[...$valid, 'palette' => [$color, $color]]],
-            'non-list palette' => [[...$valid, 'palette' => ['background' => $color]]],
-            'outward flow' => [[...$valid, 'flow' => '外向き']],
-            'unstable structure' => [[...$valid, 'structure' => '鋭角']],
-            'missing flow' => [['palette' => [$color], 'structure' => '丸み']],
-            'unexpected override' => [[...$valid, 'override' => true]],
         ];
     }
 }

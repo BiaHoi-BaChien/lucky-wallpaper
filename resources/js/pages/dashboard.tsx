@@ -1,135 +1,115 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { WallpaperFilters, WallpaperFilterValues } from '@/components/wallpaper-filters';
 import AppLayout from '@/layouts/app-layout';
-import { Head } from '@inertiajs/react';
-import { Database, Image, WalletCards } from 'lucide-react';
-import { useState } from 'react';
+import { Head, Link } from '@inertiajs/react';
+import { ArrowRight, ImagePlus } from 'lucide-react';
 
-interface ZoneStats {
-    records: number;
-    averagePrizeVnd: number | null;
-    perTicketRecords: number;
-    averagePrizePerTicketVnd: number | null;
-    heatLevel: number;
+interface DirectionStats {
+    key: string;
+    label: string;
+    wallpapers: number;
+    result_count: number;
+    prize_total: number;
+    average_prize: number | null;
+    prize_per_ticket: number | null;
+    ticket_result_count: number;
 }
-
-interface NinePalace {
-    todayNineStar: string | null;
-    unclassifiedRecords: number;
-    zoneLabels: Record<string, string>;
-    stars: Array<{ name: string; zones: Record<string, ZoneStats> }>;
-}
-
-interface Props {
-    stats: {
-        wallpapers: number;
-        total_prize_vnd: number;
-        generated_images: number;
-    };
-    ninePalace: NinePalace;
-}
-
-const zoneOrder = ['top_left', 'top', 'top_right', 'left', 'center', 'right', 'bottom_left', 'bottom', 'bottom_right'];
-const heatClasses = ['bg-muted/30', 'bg-primary/5', 'bg-primary/10', 'bg-primary/15', 'bg-primary/20'];
-
-export default function Dashboard({ stats, ninePalace }: Props) {
-    const [selectedName, setSelectedName] = useState(ninePalace.todayNineStar ?? ninePalace.stars[0]?.name ?? '');
-    const selectedStar = ninePalace.stars.find((star) => star.name === selectedName) ?? ninePalace.stars[0];
-
+export default function Dashboard({
+    filters,
+    stats,
+    directionStats,
+}: {
+    filters: WallpaperFilterValues;
+    stats: { wallpapers: number; result_count: number; total_prize_vnd: number };
+    directionStats: DirectionStats[];
+}) {
     return (
         <AppLayout breadcrumbs={[{ title: 'ダッシュボード', href: route('dashboard') }]}>
-            <Head title="ダッシュボード" />
-            <div className="space-y-6 p-4">
-                <div className="grid gap-4 md:grid-cols-3">
-                    <Stat title="実績件数" value={`${stats.wallpapers.toLocaleString()}件`} icon={<Database />} />
-                    <Stat title="累計賞金" value={`${stats.total_prize_vnd.toLocaleString()} VND`} icon={<WalletCards />} />
-                    <Stat title="ローカル画像" value={`${stats.generated_images.toLocaleString()}枚`} icon={<Image />} />
+            <Head title="吉方位別の実績" />
+            <div className="min-w-0 space-y-6 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h1 className="text-xl font-semibold">吉方位別の実績</h1>
+                    <Button asChild>
+                        <Link href={route('wallpapers.create')}>
+                            <ImagePlus aria-hidden="true" />
+                            壁紙作成
+                        </Link>
+                    </Button>
                 </div>
-
-                <section className="space-y-4 border-t pt-6" aria-labelledby="nine-palace-title">
-                    <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-                        <div>
-                            <h2 id="nine-palace-title" className="text-lg font-semibold">
-                                九星 × 九宮構図 × 当選金
-                            </h2>
-                            <p className="text-muted-foreground text-sm">過去実績による遊び上の傾向です。当選を保証するものではありません。</p>
-                        </div>
-                        <div className="w-full sm:w-64">
-                            <label htmlFor="nine-star" className="mb-1 block text-sm font-medium">
-                                九星
-                            </label>
-                            <select
-                                id="nine-star"
-                                value={selectedStar?.name ?? ''}
-                                onChange={(event) => setSelectedName(event.target.value)}
-                                className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-md border px-3 text-sm shadow-xs outline-none focus-visible:ring-[3px]"
-                            >
-                                {ninePalace.stars.map((star) => (
-                                    <option key={star.name} value={star.name}>
-                                        {star.name}
-                                        {star.name === ninePalace.todayNineStar ? '（今日）' : ''}
-                                    </option>
+                <WallpaperFilters key={JSON.stringify(filters)} filters={filters} action={route('dashboard')} />
+                <dl className="grid gap-4 border-y py-4 sm:grid-cols-3">
+                    <Stat title="壁紙件数" value={stats.wallpapers.toLocaleString() + '件'} />
+                    <Stat title="実績登録件数" value={stats.result_count.toLocaleString() + '件'} />
+                    <Stat title="賞金合計" value={formatVnd(stats.total_prize_vnd)} />
+                </dl>
+                <section className="space-y-3" aria-label="主方位ごとの実績">
+                    <p className="text-muted-foreground text-sm">採用済み構図の主方位に1件ずつ集計します。期間は壁紙の対象日で指定します。</p>
+                    <table className="block w-full text-left text-sm lg:table">
+                        <thead className="hidden border-b lg:table-header-group">
+                            <tr>
+                                {['主方位', '壁紙', '実績登録', '賞金合計', '1日平均', '1口あたり賞金', '履歴'].map((label) => (
+                                    <th key={label} className="p-3">
+                                        {label}
+                                    </th>
                                 ))}
-                            </select>
-                        </div>
-                    </div>
-
-                    {selectedStar && (
-                        <div className="grid grid-cols-3 overflow-hidden rounded-md border">
-                            {zoneOrder.map((zone, index) => {
-                                const item = selectedStar.zones[zone];
-
-                                return (
-                                    <div
-                                        key={zone}
-                                        className={`min-h-32 p-3 ${heatClasses[item.heatLevel] ?? heatClasses[0]} ${index % 3 !== 2 ? 'border-r' : ''} ${index < 6 ? 'border-b' : ''}`}
-                                    >
-                                        <div className="flex items-start justify-between gap-1">
-                                            <h3 className="text-sm font-semibold">{ninePalace.zoneLabels[zone]}</h3>
-                                            <span className="text-muted-foreground text-xs">{item.records}件</span>
-                                        </div>
-                                        {item.records === 0 ? (
-                                            <p className="text-muted-foreground mt-5 text-center text-xs">記録なし</p>
-                                        ) : (
-                                            <dl className="mt-3 space-y-2 text-xs">
-                                                <div>
-                                                    <dt className="text-muted-foreground">平均当選金</dt>
-                                                    <dd className="font-medium">{formatVnd(item.averagePrizeVnd)}</dd>
-                                                </div>
-                                                <div>
-                                                    <dt className="text-muted-foreground">1口平均</dt>
-                                                    <dd className="font-medium">{formatVnd(item.averagePrizePerTicketVnd)}</dd>
-                                                </div>
-                                            </dl>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-
-                    {ninePalace.unclassifiedRecords > 0 && (
-                        <p className="text-muted-foreground text-sm">九宮構図が未分類の実績: {ninePalace.unclassifiedRecords.toLocaleString()}件</p>
-                    )}
+                            </tr>
+                        </thead>
+                        <tbody className="block lg:table-row-group">
+                            {directionStats.map((row) => (
+                                <tr key={row.key} className="block space-y-2 border-b py-4 lg:table-row lg:space-y-0">
+                                    <th scope="row" className="block lg:table-cell lg:p-3">
+                                        {row.label}
+                                    </th>
+                                    <Cell label="壁紙" value={row.wallpapers.toLocaleString() + '件'} />
+                                    <Cell label="実績登録" value={row.result_count.toLocaleString() + '件'} />
+                                    <Cell label="賞金合計" value={formatVnd(row.prize_total)} />
+                                    <Cell label="1日平均" value={formatVnd(row.average_prize)} />
+                                    <td className="grid grid-cols-[8rem_minmax(0,1fr)] gap-2 lg:table-cell lg:p-3">
+                                        <span className="text-muted-foreground lg:hidden">1口あたり賞金</span>
+                                        <span>
+                                            {formatVnd(row.prize_per_ticket)}
+                                            <span className="text-muted-foreground block text-xs">口数登録済み {row.ticket_result_count}件</span>
+                                        </span>
+                                    </td>
+                                    <td className="block lg:table-cell lg:p-3">
+                                        <Link
+                                            className="text-primary inline-flex items-center gap-1 underline underline-offset-4"
+                                            aria-label={row.label + 'の壁紙履歴'}
+                                            href={route('wallpapers.index', { ...filters, direction: row.key })}
+                                        >
+                                            履歴を確認
+                                            <ArrowRight className="size-4" aria-hidden="true" />
+                                        </Link>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                    <p className="text-muted-foreground text-sm">
+                        賞金未登録は平均に含めません。0
+                        VNDは実績1件として含めます。1口あたり賞金は、購入口数が分かる実績の賞金合計を同じ実績の購入口数合計で割ります。
+                    </p>
                 </section>
             </div>
         </AppLayout>
     );
 }
-
-function formatVnd(value: number | null): string {
-    return value === null ? '-' : `${value.toLocaleString()} VND`;
-}
-
-function Stat({ title, value, icon }: { title: string; value: string; icon: React.ReactNode }) {
+function Stat({ title, value }: { title: string; value: string }) {
     return (
-        <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">{title}</CardTitle>
-                <span className="text-primary">{icon}</span>
-            </CardHeader>
-            <CardContent>
-                <div className="text-2xl font-bold">{value}</div>
-            </CardContent>
-        </Card>
+        <div>
+            <dt className="text-muted-foreground text-sm">{title}</dt>
+            <dd className="mt-1 text-lg font-semibold">{value}</dd>
+        </div>
     );
+}
+function Cell({ label, value }: { label: string; value: string }) {
+    return (
+        <td className="grid grid-cols-[8rem_minmax(0,1fr)] gap-2 lg:table-cell lg:p-3">
+            <span className="text-muted-foreground lg:hidden">{label}</span>
+            <span>{value}</span>
+        </td>
+    );
+}
+function formatVnd(value: number | null) {
+    return value === null ? '—' : value.toLocaleString() + ' VND';
 }

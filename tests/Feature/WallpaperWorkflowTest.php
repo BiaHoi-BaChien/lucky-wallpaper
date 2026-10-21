@@ -2,25 +2,16 @@
 
 namespace Tests\Feature;
 
-use App\Jobs\GenerateCompositionProposal;
-use App\Jobs\GenerateWallpaperImage;
 use App\Jobs\SyncWallpaperResultToNotion;
-use App\Models\AnalysisSnapshot;
-use App\Models\ApiRun;
 use App\Models\SyncRun;
 use App\Models\User;
 use App\Models\Wallpaper;
-use App\Services\HistoricalAnalysisService;
-use App\Services\ImageService;
-use App\Services\OpenAiClient;
-use App\Services\WallpaperPromptService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia;
-use Mockery;
 use Tests\TestCase;
 
 class WallpaperWorkflowTest extends TestCase
@@ -79,32 +70,6 @@ class WallpaperWorkflowTest extends TestCase
                 ->component('settings/notion-backup', false)
                 ->where('latestRestore.id', $latestRestore->id)
                 ->where('latestRestore.status', 'queued'));
-    }
-
-    public function test_existing_date_is_not_generated_again(): void
-    {
-        Queue::fake();
-        $user = User::factory()->create();
-        $wallpaper = Wallpaper::factory()->create(['target_date' => '2026-08-01']);
-
-        $this->actingAs($user)->post('/wallpapers/proposals', ['target_date' => '2026-08-01', 'api_confirmed' => true])
-            ->assertRedirect('/wallpapers/'.$wallpaper->id);
-
-        Queue::assertNotPushed(GenerateCompositionProposal::class);
-        $this->assertDatabaseCount('wallpapers', 1);
-    }
-
-    public function test_valid_new_date_queues_one_proposal(): void
-    {
-        Queue::fake();
-        $user = User::factory()->create();
-        $this->createCurrentAnalysis();
-
-        $this->actingAs($user)->post('/wallpapers/proposals', ['target_date' => '2026-08-02', 'api_confirmed' => true])
-            ->assertRedirect();
-
-        Queue::assertPushed(GenerateCompositionProposal::class, 1);
-        $this->assertDatabaseHas('wallpapers', ['target_date' => '2026-08-02', 'state' => 'draft']);
     }
 
     public function test_wallpaper_detail_receives_nearest_previous_and_next_dates(): void
@@ -184,13 +149,12 @@ class WallpaperWorkflowTest extends TestCase
         Queue::assertPushed(SyncWallpaperResultToNotion::class, 1);
     }
 
-    public function test_purchase_count_is_optional_positive_integer_and_invalidates_analysis(): void
+    public function test_purchase_count_is_optional_positive_integer(): void
     {
         config(['lucky.notion.token' => 'test']);
         Queue::fake();
         $user = User::factory()->create();
         $wallpaper = Wallpaper::factory()->create(['prize_vnd' => 1_000]);
-        $snapshot = $this->createCurrentAnalysis();
 
         foreach (['0', '-1', '1.5'] as $purchaseCount) {
             $this->actingAs($user)->put("/wallpapers/{$wallpaper->id}/result", [
@@ -211,42 +175,6 @@ class WallpaperWorkflowTest extends TestCase
         ])->assertSessionHasNoErrors();
 
         $this->assertSame(2, $wallpaper->refresh()->purchase_count);
-        $this->assertSame('invalidated', $snapshot->refresh()->status);
-        $this->assertNotSame($snapshot->data_hash, app(HistoricalAnalysisService::class)->currentDataHash());
-    }
-
-    public function test_composition_zone_can_be_changed_or_cleared_and_invalidates_analysis(): void
-    {
-        config(['lucky.notion.token' => null]);
-        $user = User::factory()->create();
-        $wallpaper = Wallpaper::factory()->create(['prize_vnd' => 1_000]);
-        $snapshot = $this->createCurrentAnalysis();
-
-        $this->actingAs($user)->put("/wallpapers/{$wallpaper->id}/result", [
-            'prize_vnd' => '1000',
-            'composition_zone' => 'outside',
-        ])->assertSessionHasErrors('composition_zone');
-
-        $this->actingAs($user)->put("/wallpapers/{$wallpaper->id}/result", [
-            'prize_vnd' => '1000',
-            'composition_zone' => 'top_left',
-        ])->assertSessionHasNoErrors();
-        $this->assertSame('top_left', $wallpaper->refresh()->composition_zone);
-        $this->assertSame('invalidated', $snapshot->refresh()->status);
-        $this->actingAs($user)->get("/wallpapers/{$wallpaper->id}")
-            ->assertInertia(fn (AssertableInertia $page) => $page
-                ->component('wallpapers/show', false)
-                ->where('compositionZoneLabel', '左上'));
-
-        $this->actingAs($user)->put("/wallpapers/{$wallpaper->id}/result", [
-            'prize_vnd' => '1000',
-            'composition_zone' => '',
-        ])->assertSessionHasNoErrors();
-        $this->assertNull($wallpaper->refresh()->composition_zone);
-        $this->actingAs($user)->get("/wallpapers/{$wallpaper->id}")
-            ->assertInertia(fn (AssertableInertia $page) => $page
-                ->component('wallpapers/show', false)
-                ->where('compositionZoneLabel', '未分類'));
     }
 
     public function test_result_is_saved_without_queuing_backup_when_notion_is_not_configured(): void
@@ -445,210 +373,6 @@ class WallpaperWorkflowTest extends TestCase
                 ->where('localImageAvailable', false)
                 ->where('downloadAvailable', true)
                 ->where('downloadUnavailableReason', null));
-    }
-
-    public function test_imported_composition_details_can_queue_image_regeneration_without_a_proposal(): void
-    {
-        Queue::fake();
-        $user = User::factory()->create();
-        $wallpaper = Wallpaper::factory()->create([
-            'source' => 'notion',
-            'state' => 'archived',
-            'image_disk' => null,
-            'image_path' => null,
-            'notion_page_id' => null,
-        ]);
-
-        $this->actingAs($user)
-            ->post("/wallpapers/{$wallpaper->id}/image", ['api_confirmed' => true])
-            ->assertRedirect()
-            ->assertSessionHasNoErrors();
-
-        Queue::assertPushed(
-            GenerateWallpaperImage::class,
-            fn (GenerateWallpaperImage $job): bool => $job->wallpaperId === $wallpaper->id
-                && $job->proposalId === null,
-        );
-        $this->assertDatabaseHas('api_runs', [
-            'subject_id' => $wallpaper->id,
-            'type' => 'image_generation',
-            'status' => 'queued',
-        ]);
-    }
-
-    public function test_image_regeneration_requires_composition_details(): void
-    {
-        Queue::fake();
-        $user = User::factory()->create();
-        $wallpaper = Wallpaper::factory()->create([
-            'title' => null,
-            'conclusion' => null,
-            'overview' => null,
-            'composition' => null,
-            'color_wu_xing' => null,
-            'symbolism' => null,
-            'image_disk' => null,
-            'image_path' => null,
-        ]);
-
-        $this->actingAs($user)
-            ->post("/wallpapers/{$wallpaper->id}/image", ['api_confirmed' => true])
-            ->assertSessionHasErrors('image');
-
-        Queue::assertNotPushed(GenerateWallpaperImage::class);
-        $this->assertDatabaseCount('api_runs', 0);
-    }
-
-    public function test_active_image_generation_cannot_be_queued_twice(): void
-    {
-        Queue::fake();
-        $user = User::factory()->create();
-        $wallpaper = Wallpaper::factory()->create([
-            'image_disk' => null,
-            'image_path' => null,
-        ]);
-        ApiRun::query()->create([
-            'type' => 'image_generation',
-            'model' => 'test-image-model',
-            'prompt_version' => 'v1',
-            'input_hash' => str_repeat('a', 64),
-            'subject_type' => $wallpaper->getMorphClass(),
-            'subject_id' => $wallpaper->id,
-            'status' => 'running',
-        ]);
-
-        $this->actingAs($user)
-            ->post("/wallpapers/{$wallpaper->id}/image", ['api_confirmed' => true])
-            ->assertSessionHasErrors('image');
-
-        Queue::assertNotPushed(GenerateWallpaperImage::class);
-        $this->assertDatabaseCount('api_runs', 1);
-    }
-
-    public function test_image_regeneration_job_uses_saved_composition_details_without_a_proposal(): void
-    {
-        $wallpaper = Wallpaper::factory()->create([
-            'title' => '保存済みの構図名',
-            'art_style' => '保存済みの画風',
-            'overview' => '保存済みの概要',
-            'composition' => '保存済みの配置',
-            'color_wu_xing' => '保存済みの色彩',
-            'symbolism' => '三枚の柳葉と細い止まり枝を添える。過去の当選額は5,000,000 VND。高額割合は27.1%。当選確率の向上は主張しない。',
-            'image_disk' => null,
-            'image_path' => null,
-        ]);
-        $run = ApiRun::query()->create([
-            'type' => 'image_generation',
-            'model' => 'test-image-model',
-            'prompt_version' => 'v1',
-            'input_hash' => str_repeat('b', 64),
-            'subject_type' => $wallpaper->getMorphClass(),
-            'subject_id' => $wallpaper->id,
-        ]);
-        $openAi = Mockery::mock(OpenAiClient::class);
-        $openAi->shouldReceive('image')
-            ->once()
-            ->with(
-                Mockery::on(fn (ApiRun $actual): bool => $actual->is($run)),
-                Mockery::on(fn (string $prompt): bool => str_contains($prompt, '構図名: 保存済みの構図名')
-                    && str_contains($prompt, '画風: 保存済みの画風')
-                    && str_contains($prompt, '配置: 保存済みの配置')
-                    && str_contains($prompt, '保存済みの色彩')
-                    && str_contains($prompt, '三枚の柳葉と細い止まり枝を添える。')
-                    && ! str_contains($prompt, '象徴意図')
-                    && ! str_contains($prompt, 'VND')
-                    && ! str_contains($prompt, '27.1%')
-                    && ! str_contains($prompt, '当選確率')),
-            )
-            ->andReturn('generated-image-bytes');
-        $images = Mockery::mock(ImageService::class);
-        $images->shouldReceive('normalizeAndStore')
-            ->once()
-            ->with('generated-image-bytes')
-            ->andReturn([
-                'disk' => 'local',
-                'path' => 'wallpapers/regenerated.jpg',
-                'mime' => 'image/jpeg',
-                'bytes' => 123,
-                'sha256' => str_repeat('c', 64),
-            ]);
-
-        (new GenerateWallpaperImage($wallpaper->id, null, $run->id))->handle(
-            $openAi,
-            $images,
-            app(WallpaperPromptService::class),
-        );
-
-        $this->assertDatabaseHas('wallpapers', [
-            'id' => $wallpaper->id,
-            'chosen_proposal_id' => null,
-            'image_path' => 'wallpapers/regenerated.jpg',
-            'state' => 'generated',
-        ]);
-    }
-
-    public function test_image_regeneration_without_proposal_id_preserves_chosen_feng_shui(): void
-    {
-        config(['lucky.openai.api_key' => 'test']);
-        Storage::fake('local');
-        Http::preventStrayRequests();
-        Http::fake([
-            'api.openai.com/v1/images/generations' => Http::response([
-                'data' => [['b64_json' => base64_encode($this->pngBytes())]],
-            ]),
-        ]);
-        $wallpaper = Wallpaper::factory()->create(['image_disk' => null, 'image_path' => null]);
-        $proposal = $wallpaper->proposals()->create([
-            ...$wallpaper->only(['art_style', 'conclusion', 'overview', 'composition', 'color_wu_xing', 'symbolism']),
-            'title' => '承認済みの案',
-            'sequence' => 1,
-            'status' => 'approved',
-            'input_hash' => str_repeat('a', 64),
-            'calendar_context' => ['feng_shui' => [
-                'palette' => [['color' => '白', 'element' => '金', 'role' => '主色']],
-                'color_judgement' => '吉',
-                'color_reason' => '白を主色にして六白金星との比和を採用する。',
-                'flow' => '内向き',
-                'structure' => '丸み',
-            ]],
-        ]);
-        $wallpaper->update(['chosen_proposal_id' => $proposal->id]);
-        $prompts = app(WallpaperPromptService::class);
-        $prepared = $prompts->image($wallpaper);
-        $this->assertStringContainsString('配色の指定: 白（主色）', $prepared['prompt']);
-        $this->assertStringContainsString('構図名: '.$wallpaper->title, $prepared['prompt']);
-        $run = ApiRun::query()->create([
-            'type' => 'image_generation',
-            'model' => 'test-image-model',
-            'prompt_version' => 'v1',
-            'input_hash' => $prepared['context_hash'],
-            'subject_type' => $wallpaper->getMorphClass(),
-            'subject_id' => $wallpaper->id,
-        ]);
-
-        (new GenerateWallpaperImage($wallpaper->id, null, $run->id))->handle(
-            app(OpenAiClient::class),
-            app(ImageService::class),
-            $prompts,
-        );
-
-        $this->assertSame($proposal->id, $wallpaper->refresh()->chosen_proposal_id);
-        $this->assertSame('approved', $proposal->refresh()->status);
-        $this->assertSame($prepared, $prompts->image($wallpaper));
-        Storage::disk('local')->assertExists($wallpaper->image_path);
-        Http::assertSent(fn ($request): bool => $request['prompt'] === $prepared['prompt']);
-        Http::assertSentCount(1);
-    }
-
-    private function createCurrentAnalysis(): AnalysisSnapshot
-    {
-        return AnalysisSnapshot::query()->create([
-            'data_hash' => app(HistoricalAnalysisService::class)->currentDataHash(),
-            'prompt_version' => config('lucky.openai.prompt_version'),
-            'model' => config('lucky.openai.text_model'),
-            'summary' => "# 高額当選壁紙の傾向分析\n\nテスト分析",
-            'status' => 'succeeded',
-        ]);
     }
 
     private function notionPage(string $fileUrl): array

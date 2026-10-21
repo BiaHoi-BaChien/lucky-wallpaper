@@ -2,18 +2,21 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\ImportNotionPages;
 use App\Jobs\ProcessNotionSync;
 use App\Jobs\SyncWallpaperResultToNotion;
 use App\Models\SyncRun;
 use App\Models\User;
 use App\Models\Wallpaper;
 use App\Services\ImageService;
+use App\Services\KigakuPolicy;
 use App\Services\NotionClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia;
 use Mockery;
+use Tests\Support\KigakuFixtures;
 use Tests\TestCase;
 
 class NotionBackupTest extends TestCase
@@ -107,6 +110,41 @@ class NotionBackupTest extends TestCase
             'image_bytes' => 11,
             'state' => 'result_synced',
         ]);
+    }
+
+    public function test_new_backup_contains_kigaku_judgement_and_restore_keeps_it_as_unclassified_text(): void
+    {
+        $wallpaper = KigakuFixtures::wallpaper('2026-10-22', attributes: ['prize_vnd' => 1000]);
+        $body = $wallpaper->compositionDetails();
+        $this->assertStringContainsString('九星気学の判定', $body);
+        $this->assertStringContainsString('主方位: 北', $body);
+        $this->assertStringContainsString('採用方式:', $body);
+        $this->assertStringContainsString('判断根拠:', $body);
+        $this->assertStringContainsString('https://example.com/calendar', $body);
+
+        $run = SyncRun::query()->create(['type' => 'notion_result', 'wallpaper_id' => $wallpaper->id]);
+        $notion = Mockery::mock(NotionClient::class);
+        $notion->shouldReceive('findPagesByDate')->once()->with('2026-10-22')->andReturn([]);
+        $notion->shouldReceive('createWallpaperPage')->once()->with(Mockery::on(
+            fn (array $data): bool => $data['body'] === $body && $data['target_date'] === '2026-10-22',
+        ))->andReturn('new-page');
+        $notion->shouldReceive('updateResult')->once()->with('new-page', 1000, null, null);
+        $notion->shouldReceive('getPage')->once()->with('new-page')->andReturn(['id' => 'new-page']);
+        $notion->shouldReceive('parseCandidate')->once()->andReturn(['target_date' => '2026-10-22', 'price_vnd' => 1000]);
+        (new SyncWallpaperResultToNotion($wallpaper->id, $run->id))->handle($notion, app(ImageService::class));
+        $this->assertSame('new-page', $wallpaper->refresh()->notion_page_id);
+
+        $restoredDate = '2026-10-23';
+        $restore = SyncRun::query()->create(['type' => 'notion_import']);
+        $reader = Mockery::mock(NotionClient::class);
+        $reader->shouldReceive('getPageBody')->once()->with('restore-page')->andReturn($body);
+        (new ImportNotionPages($restore->id, [[
+            'target_date' => $restoredDate, 'page_id' => 'restore-page', 'title' => '復元した壁紙', 'price_vnd' => 1000,
+        ]]))->handle($reader);
+        $restored = Wallpaper::query()->where('target_date', $restoredDate)->sole();
+        $this->assertStringContainsString('主方位: 北', $restored->composition);
+        $this->assertNull($restored->kigaku());
+        $this->assertSame('legacy', KigakuPolicy::group($restored->kigaku()));
     }
 
     /**

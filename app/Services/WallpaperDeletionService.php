@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\AnalysisSnapshot;
 use App\Models\ApiRun;
 use App\Models\SyncRun;
 use App\Models\Wallpaper;
@@ -86,9 +85,6 @@ class WallpaperDeletionService
                     ->where('subject_id', $wallpaper->getKey())
                     ->delete();
                 SyncRun::query()->where('wallpaper_id', $wallpaper->getKey())->delete();
-                AnalysisSnapshot::query()
-                    ->where('status', 'succeeded')
-                    ->update(['status' => 'invalidated']);
                 $wallpaper->deleteOrFail();
             });
         } catch (Throwable $exception) {
@@ -106,17 +102,12 @@ class WallpaperDeletionService
 
     private function ensureNoActiveProcesses(Wallpaper $wallpaper, string $errorKey = 'delete'): void
     {
-        $hasActiveApiRun = ApiRun::query()
-            ->where('subject_type', $wallpaper->getMorphClass())
-            ->where('subject_id', $wallpaper->getKey())
-            ->whereIn('status', ['queued', 'running'])
-            ->exists();
         $hasActiveSyncRun = SyncRun::query()
             ->where('wallpaper_id', $wallpaper->getKey())
             ->whereIn('status', ['queued', 'running'])
             ->exists();
 
-        if ($hasActiveApiRun || $hasActiveSyncRun) {
+        if ($hasActiveSyncRun) {
             throw ValidationException::withMessages([
                 $errorKey => '処理中の履歴は削除できません。処理完了後に再試行してください。',
             ]);
