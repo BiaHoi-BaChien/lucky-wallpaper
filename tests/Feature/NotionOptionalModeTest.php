@@ -7,6 +7,7 @@ use App\Models\Wallpaper;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Inertia\Testing\AssertableInertia;
 use Tests\TestCase;
 
 class NotionOptionalModeTest extends TestCase
@@ -72,6 +73,14 @@ class NotionOptionalModeTest extends TestCase
         $this->actingAs($user)
             ->get("/wallpapers/{$wallpaper->id}/download")
             ->assertStatus(503);
+
+        $this->get("/wallpapers/{$wallpaper->id}")
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('downloadAvailable', false)
+                ->where('downloadUnavailableReason', 'Notionバックアップの画像を確認・ダウンロードするにはNOTION_TOKENの設定が必要です。'));
+
+        $this->get('/results?date='.$wallpaper->target_date->format('Y-m-d'))
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('imageAvailable', false));
 
         Http::assertNothingSent();
     }

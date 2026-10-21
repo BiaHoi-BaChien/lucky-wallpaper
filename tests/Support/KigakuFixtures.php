@@ -15,12 +15,11 @@ class KigakuFixtures
             'color_wu_xing' => '白と青を配する。', 'symbolism' => '主方位の象意を鳥と水辺に表現する。',
             'kigaku' => [
                 'target_date' => $date, 'personal_star' => '六白金星', 'timezone' => 'Asia/Ho_Chi_Minh',
-                'status' => $status, 'method' => 'テスト用の日盤方式。対象日は現地の暦日を採用。',
+                'status' => $status, 'method' => 'テスト用の日盤＞月盤＞年盤の優先方式。対象日は現地の暦日を採用。',
                 'candidate_directions' => $status === 'auspicious' ? array_values(array_unique([$direction, 'east'])) : [],
                 'primary_direction' => $status === 'auspicious' ? $direction : null,
                 'reason' => 'テスト用の判定根拠。', 'fallback_reason' => $status === 'auspicious' ? null : '本命星の象意で補完する。',
                 'motifs' => [['motif' => '白い鳥', 'meaning' => '方位または六白金星の象意を表す。']],
-                'references' => [['title' => 'テスト用資料', 'url' => 'https://example.com/calendar']],
             ],
         ];
     }

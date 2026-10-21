@@ -36,9 +36,6 @@ class KigakuPolicy
             'reason' => $text,
             'fallback_reason' => ['type' => ['string', 'null']],
             'motifs' => ['type' => 'array', 'minItems' => 1, 'maxItems' => 20, 'items' => self::objectSchema(['motif' => $text, 'meaning' => $text])],
-            'references' => ['type' => 'array', 'maxItems' => 20, 'items' => self::objectSchema([
-                'title' => $text, 'url' => ['type' => ['string', 'null']],
-            ])],
         ];
 
         return self::objectSchema([
@@ -70,7 +67,7 @@ class KigakuPolicy
             'kigaku.motifs.*' => ['required', 'array:motif,meaning'],
             'kigaku.motifs.*.motif' => ['required', 'string', 'max:500'],
             'kigaku.motifs.*.meaning' => ['required', 'string', 'max:2000'],
-            'kigaku.references' => ['present', 'array', 'list', 'max:20'],
+            'kigaku.references' => ['sometimes', 'array', 'list', 'max:20'],
             'kigaku.references.*' => ['required', 'array:title,url'],
             'kigaku.references.*.title' => ['required', 'string', 'max:500'],
             'kigaku.references.*.url' => ['present', 'nullable', 'url:http,https', 'max:2000'],

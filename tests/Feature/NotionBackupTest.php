@@ -120,7 +120,7 @@ class NotionBackupTest extends TestCase
         $this->assertStringContainsString('主方位: 北', $body);
         $this->assertStringContainsString('採用方式:', $body);
         $this->assertStringContainsString('判断根拠:', $body);
-        $this->assertStringContainsString('https://example.com/calendar', $body);
+        $this->assertStringNotContainsString('参照資料:', $body);
 
         $run = SyncRun::query()->create(['type' => 'notion_result', 'wallpaper_id' => $wallpaper->id]);
         $notion = Mockery::mock(NotionClient::class);

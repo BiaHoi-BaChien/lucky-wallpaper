@@ -29,7 +29,7 @@ class ResultController extends Controller
             'selectedDate' => $date,
             'wallpaper' => $wallpaper,
             'imageAvailable' => $wallpaper !== null && ($localImageAvailable
-                || ($wallpaper->notion_page_id !== null && $notion->isConfigured())),
+                || $notion->hasWallpaperImage($wallpaper->notion_page_id)),
             'latestRun' => $date === '' || ! $notion->isConfigured() ? null : SyncRun::query()
                 ->where('type', 'notion_result')
                 ->where('wallpaper_id', $wallpaper?->id)
