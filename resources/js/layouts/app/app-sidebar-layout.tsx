@@ -12,7 +12,7 @@ export default function AppSidebarLayout({ children, breadcrumbs = [] }: { child
             <AppContent variant="sidebar" className="pb-[calc(5rem+env(safe-area-inset-bottom))]">
                 <AppSidebarHeader breadcrumbs={breadcrumbs} />
                 <Alert role="note" variant="warning" className="mx-4 mt-4 w-auto">
-                    本システムの提案は、過去実績との相関に基づく創作上の傾向です。宝くじの当選や当選確率の向上を保証するものではありません。
+                    九星気学の吉方位と象意を基に壁紙を作成します。宝くじの当選や当選確率の向上を保証するものではありません。
                 </Alert>
                 {children}
             </AppContent>

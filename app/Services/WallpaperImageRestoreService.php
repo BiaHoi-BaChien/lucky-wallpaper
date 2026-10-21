@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Exceptions\ExternalApiException;
-use App\Models\ApiRun;
 use App\Models\SyncRun;
 use App\Models\Wallpaper;
 use Illuminate\Support\Facades\Http;
@@ -87,17 +86,12 @@ class WallpaperImageRestoreService
 
     private function ensureNoActiveProcesses(Wallpaper $wallpaper): void
     {
-        $hasActiveApiRun = ApiRun::query()
-            ->where('subject_type', $wallpaper->getMorphClass())
-            ->where('subject_id', $wallpaper->getKey())
-            ->whereIn('status', ['queued', 'running'])
-            ->exists();
         $hasActiveSyncRun = SyncRun::query()
             ->where('wallpaper_id', $wallpaper->getKey())
             ->whereIn('status', ['queued', 'running'])
             ->exists();
 
-        if ($hasActiveApiRun || $hasActiveSyncRun) {
+        if ($hasActiveSyncRun) {
             throw ValidationException::withMessages([
                 'restoreImage' => '処理中の履歴は復元できません。処理完了後に再試行してください。',
             ]);

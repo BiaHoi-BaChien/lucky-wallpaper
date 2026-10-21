@@ -2,9 +2,12 @@
 
 namespace App\Models;
 
+use App\Services\KigakuPolicy;
 use Database\Factories\WallpaperFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
@@ -88,6 +91,55 @@ class Wallpaper extends Model
             "配置\n".$this->composition,
             "色彩・五行\n".$this->color_wu_xing,
             "象徴意図\n".$this->symbolism,
+            ($kigaku = $this->kigaku()) === null ? null : KigakuPolicy::description($kigaku),
         ]));
+    }
+
+    /** @return BelongsTo<CompositionProposal, $this> */
+    public function chosenProposal(): BelongsTo
+    {
+        return $this->belongsTo(CompositionProposal::class, 'chosen_proposal_id');
+    }
+
+    public function kigaku(): ?array
+    {
+        $proposal = $this->chosenProposal;
+        if ($proposal === null || $proposal->wallpaper_id !== $this->id || $proposal->status !== 'approved') {
+            return null;
+        }
+        $kigaku = $proposal->calendar_context['kigaku'] ?? null;
+
+        return is_array($kigaku) ? $kigaku : null;
+    }
+
+    /** @param Builder<Wallpaper> $query */
+    public function scopeFiltered(Builder $query, array $filters): void
+    {
+        $query->when($filters['date_from'] ?? null, fn (Builder $q, string $date) => $q->where('target_date', '>=', $date))
+            ->when($filters['date_to'] ?? null, fn (Builder $q, string $date) => $q->where('target_date', '<=', $date));
+        $direction = $filters['direction'] ?? null;
+        if ($direction === null || $direction === '') {
+            return;
+        }
+        $matches = function (Builder $proposal) use ($direction): void {
+            $proposal->where('status', 'approved')->whereColumn('composition_proposals.wallpaper_id', 'wallpapers.id');
+            if ($direction === 'legacy') {
+                $proposal->where(function (Builder $q): void {
+                    $q->whereIn('calendar_context->kigaku->status', ['none', 'undetermined'])
+                        ->orWhere(fn (Builder $q) => $q->where('calendar_context->kigaku->status', 'auspicious')
+                            ->whereIn('calendar_context->kigaku->primary_direction', array_keys(KigakuPolicy::DIRECTIONS)));
+                });
+            } elseif (isset(KigakuPolicy::DIRECTIONS[$direction])) {
+                $proposal->where('calendar_context->kigaku->status', 'auspicious')
+                    ->where('calendar_context->kigaku->primary_direction', $direction);
+            } else {
+                $proposal->where('calendar_context->kigaku->status', $direction);
+            }
+        };
+        if ($direction === 'legacy') {
+            $query->whereDoesntHave('chosenProposal', $matches);
+        } else {
+            $query->whereHas('chosenProposal', $matches);
+        }
     }
 }

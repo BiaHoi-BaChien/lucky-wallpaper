@@ -85,14 +85,8 @@ class WallpaperDeletionTest extends TestCase
             'image_path' => 'wallpapers/keep-while-processing.jpg',
         ]);
         Storage::disk('local')->put('wallpapers/keep-while-processing.jpg', 'image-bytes');
-        ApiRun::query()->create([
-            'type' => 'image_generation',
-            'model' => 'test-model',
-            'prompt_version' => 'v1',
-            'input_hash' => str_repeat('b', 64),
-            'status' => 'running',
-            'subject_type' => $wallpaper->getMorphClass(),
-            'subject_id' => $wallpaper->id,
+        SyncRun::query()->create([
+            'type' => 'notion_result', 'wallpaper_id' => $wallpaper->id, 'status' => 'running',
         ]);
 
         $this->actingAs($user)
@@ -167,7 +161,7 @@ class WallpaperDeletionTest extends TestCase
         $this->assertDatabaseMissing('sync_runs', ['id' => $syncRun->id]);
         $this->assertDatabaseHas('analysis_snapshots', [
             'id' => $snapshot->id,
-            'status' => 'invalidated',
+            'status' => 'succeeded',
         ]);
         Storage::disk('local')->assertMissing('wallpapers/delete-me.jpg');
         Http::assertNothingSent();
@@ -181,14 +175,8 @@ class WallpaperDeletionTest extends TestCase
         $wallpaper = Wallpaper::factory()->create([
             'notion_page_id' => 'notion-page-id',
         ]);
-        ApiRun::query()->create([
-            'type' => 'image_generation',
-            'model' => 'test-model',
-            'prompt_version' => 'v1',
-            'input_hash' => str_repeat('d', 64),
-            'status' => 'running',
-            'subject_type' => $wallpaper->getMorphClass(),
-            'subject_id' => $wallpaper->id,
+        SyncRun::query()->create([
+            'type' => 'notion_result', 'wallpaper_id' => $wallpaper->id, 'status' => 'running',
         ]);
 
         $this->actingAs($user)

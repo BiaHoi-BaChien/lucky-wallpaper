@@ -3,13 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\ExternalApiException;
-use App\Jobs\GenerateCompositionProposal;
-use App\Jobs\GenerateWallpaperImage;
-use App\Models\ApiRun;
-use App\Models\CompositionProposal;
+use App\Http\Requests\WallpaperFilterRequest;
 use App\Models\Wallpaper;
-use App\Services\HistoricalAnalysisService;
 use App\Services\ImageService;
+use App\Services\KigakuPolicy;
 use App\Services\NotionClient;
 use App\Services\WallpaperDeletionService;
 use App\Services\WallpaperImageRestoreService;
@@ -17,7 +14,6 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -28,7 +24,7 @@ use Throwable;
 
 class WallpaperController extends Controller
 {
-    public function create(Request $request, HistoricalAnalysisService $analysisService): Response
+    public function create(Request $request): Response
     {
         $defaultDate = CarbonImmutable::now(config('lucky.timezone'))->addDay()->toDateString();
         $selectedDate = $request->string('date')->toString() ?: $defaultDate;
@@ -37,55 +33,7 @@ class WallpaperController extends Controller
             'defaultDate' => $defaultDate,
             'selectedDate' => $selectedDate,
             'existing' => Wallpaper::query()->where('target_date', $selectedDate)->first(),
-            'analysisIsLatest' => $analysisService->currentSnapshot() !== null,
         ]);
-    }
-
-    public function storeProposal(
-        Request $request,
-        HistoricalAnalysisService $analysisService,
-    ): RedirectResponse {
-        $validated = $request->validate([
-            'target_date' => ['required', 'date_format:Y-m-d'],
-            'api_confirmed' => ['accepted'],
-        ]);
-
-        $result = DB::transaction(function () use ($validated, $analysisService): array {
-            $existing = Wallpaper::query()
-                ->where('target_date', $validated['target_date'])
-                ->lockForUpdate()
-                ->first();
-            if ($existing !== null) {
-                return [$existing, null];
-            }
-
-            $snapshot = $analysisService->currentSnapshot();
-            if ($snapshot === null) {
-                throw ValidationException::withMessages([
-                    'proposal' => '最新の傾向分析を実行してから構図を提案してください。',
-                ]);
-            }
-
-            $wallpaper = Wallpaper::query()->create([
-                'target_date' => $validated['target_date'],
-                'source' => 'generated',
-                'state' => 'draft',
-            ]);
-            $inputHash = hash(
-                'sha256',
-                $validated['target_date'].'|'.config('lucky.openai.prompt_version').'|'.$snapshot->data_hash,
-            );
-            $run = $this->createApiRun($wallpaper, 'composition_proposal', $inputHash);
-
-            return [$wallpaper, $run];
-        });
-
-        [$wallpaper, $run] = $result;
-        if ($run instanceof ApiRun) {
-            GenerateCompositionProposal::dispatch($wallpaper->id, $run->id);
-        }
-
-        return to_route('wallpapers.show', ['wallpaper' => $wallpaper, 'operation' => $run?->id]);
     }
 
     public function show(Wallpaper $wallpaper, NotionClient $notion): Response
@@ -97,7 +45,8 @@ class WallpaperController extends Controller
 
         return Inertia::render('wallpapers/show', [
             'wallpaper' => $wallpaper->load(['proposals' => fn ($query) => $query->orderByDesc('sequence')]),
-            'compositionZoneLabel' => Wallpaper::COMPOSITION_ZONE_LABELS[$wallpaper->composition_zone] ?? '未分類',
+            'kigaku' => $wallpaper->kigaku(),
+            'directionLabel' => KigakuPolicy::GROUPS[KigakuPolicy::group($wallpaper->kigaku())],
             'localImageAvailable' => $localImageAvailable,
             'downloadAvailable' => $localImageAvailable
                 || ($wallpaper->notion_page_id !== null && $notion->isConfigured()),
@@ -112,97 +61,22 @@ class WallpaperController extends Controller
                 ->where('target_date', '>', $wallpaper->target_date->toDateString())
                 ->orderBy('target_date')
                 ->value('id'),
-            'latestApiRun' => ApiRun::query()
-                ->where('subject_type', $wallpaper->getMorphClass())
-                ->where('subject_id', $wallpaper->id)
-                ->whereIn('type', ['composition_proposal', 'image_generation'])
-                ->latest()
-                ->first(),
         ]);
     }
 
-    public function repropose(
-        Request $request,
-        Wallpaper $wallpaper,
-        HistoricalAnalysisService $analysisService,
-    ): RedirectResponse {
-        $request->validate(['api_confirmed' => ['accepted']]);
-        if ($analysisService->currentSnapshot() === null) {
-            throw ValidationException::withMessages([
-                'proposal' => '壁紙履歴が更新されています。最新の傾向分析を実行してから再提案してください。',
-            ]);
-        }
-
-        $active = ApiRun::query()
-            ->where('subject_type', $wallpaper->getMorphClass())
-            ->where('subject_id', $wallpaper->id)
-            ->where('type', 'composition_proposal')
-            ->whereIn('status', ['queued', 'running'])
-            ->exists();
-        if ($active) {
-            throw ValidationException::withMessages(['proposal' => '構図提案は既に実行中です。']);
-        }
-
-        $inputHash = hash('sha256', $wallpaper->id.'|reproposal|'.$wallpaper->proposals()->count());
-        $run = $this->createApiRun($wallpaper, 'composition_proposal', $inputHash);
-        GenerateCompositionProposal::dispatch($wallpaper->id, $run->id, true);
-
-        return back()->with('operationId', $run->id);
-    }
-
-    public function image(Request $request, Wallpaper $wallpaper): RedirectResponse
+    public function index(WallpaperFilterRequest $request): Response
     {
-        $validated = $request->validate([
-            'proposal_id' => ['nullable', 'integer'],
-            'api_confirmed' => ['accepted'],
-        ]);
-        if ($this->hasLocalImage($wallpaper)) {
-            return back();
-        }
+        $filters = $request->validated();
 
-        $active = ApiRun::query()
-            ->where('subject_type', $wallpaper->getMorphClass())
-            ->where('subject_id', $wallpaper->id)
-            ->where('type', 'image_generation')
-            ->whereIn('status', ['queued', 'running'])
-            ->exists();
-        if ($active) {
-            throw ValidationException::withMessages(['image' => '画像生成は既に実行中です。']);
-        }
-
-        $proposal = isset($validated['proposal_id'])
-            ? CompositionProposal::query()
-                ->where('wallpaper_id', $wallpaper->id)
-                ->whereKey($validated['proposal_id'])
-                ->firstOrFail()
-            : null;
-        if ($proposal === null && ! $this->hasCompositionDetails($wallpaper)) {
-            throw ValidationException::withMessages([
-                'image' => '画像生成に必要な構図の詳細がありません。',
-            ]);
-        }
-
-        if ($proposal !== null) {
-            $wallpaper->proposals()
-                ->where('status', 'proposed')
-                ->whereKeyNot($proposal->id)
-                ->update(['status' => 'rejected']);
-            $proposal->update(['status' => 'approved']);
-        }
-
-        $inputHash = $proposal !== null
-            ? hash('sha256', $proposal->input_hash.'|image')
-            : hash('sha256', $wallpaper->compositionDetails().'|image');
-        $run = $this->createApiRun($wallpaper, 'image_generation', $inputHash, config('lucky.openai.image_model'));
-        GenerateWallpaperImage::dispatch($wallpaper->id, $proposal?->id, $run->id);
-
-        return back()->with('operationId', $run->id);
-    }
-
-    public function index(): Response
-    {
         return Inertia::render('wallpapers/index', [
-            'wallpapers' => Wallpaper::query()->orderByDesc('target_date')->paginate(20),
+            'filters' => $filters,
+            'directionLabels' => KigakuPolicy::GROUPS,
+            'wallpapers' => Wallpaper::query()->filtered($filters)->with('chosenProposal')
+                ->orderByDesc('target_date')->paginate(20)->withQueryString()
+                ->through(fn (Wallpaper $wallpaper): array => [
+                    ...$wallpaper->toArray(),
+                    'direction_label' => KigakuPolicy::GROUPS[KigakuPolicy::group($wallpaper->kigaku())],
+                ]),
         ]);
     }
 
@@ -348,33 +222,5 @@ class WallpaperController extends Controller
         return $wallpaper->image_disk !== null
             && $wallpaper->image_path !== null
             && Storage::disk($wallpaper->image_disk)->exists($wallpaper->image_path);
-    }
-
-    private function hasCompositionDetails(Wallpaper $wallpaper): bool
-    {
-        return collect([
-            $wallpaper->title,
-            $wallpaper->conclusion,
-            $wallpaper->overview,
-            $wallpaper->composition,
-            $wallpaper->color_wu_xing,
-            $wallpaper->symbolism,
-        ])->contains(fn (?string $value): bool => $value !== null && trim($value) !== '');
-    }
-
-    private function createApiRun(
-        Wallpaper $wallpaper,
-        string $type,
-        string $inputHash,
-        ?string $model = null,
-    ): ApiRun {
-        return ApiRun::query()->create([
-            'type' => $type,
-            'model' => $model ?? config('lucky.openai.text_model'),
-            'prompt_version' => config('lucky.openai.prompt_version'),
-            'input_hash' => $inputHash,
-            'subject_type' => $wallpaper->getMorphClass(),
-            'subject_id' => $wallpaper->getKey(),
-        ]);
     }
 }

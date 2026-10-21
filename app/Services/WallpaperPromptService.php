@@ -5,199 +5,94 @@ namespace App\Services;
 use App\Exceptions\ExternalApiException;
 use App\Models\CompositionProposal;
 use App\Models\Wallpaper;
-use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use JsonException;
 
 class WallpaperPromptService
 {
-    private const PROPOSAL_FIELDS = [
-        'title',
-        'art_style',
-        'conclusion',
-        'overview',
-        'composition',
-        'composition_zone',
-        'color_wu_xing',
-        'symbolism',
-        'feng_shui',
-    ];
-
-    public function __construct(
-        private readonly HistoricalAnalysisService $analysisService,
-        private readonly CalendarContextService $calendarService,
-    ) {}
-
-    /**
-     * @return array{
-     *     instructions: string,
-     *     input: string,
-     *     input_hash: string,
-     *     prompt: string,
-     *     prompt_hash: string,
-     *     context_hash: string,
-     *     filename: string,
-     *     calendar: array,
-     *     analysis_hash: ?string
-     * }
-     */
-    public function composition(
-        string $targetDate,
-        ?Wallpaper $wallpaper = null,
-        bool $reproposal = false,
-        bool $allowWithoutCurrentAnalysis = false,
-        bool $includeImage = false,
-    ): array {
-        $snapshot = $this->analysisService->currentSnapshot();
-        if ($snapshot === null) {
-            if (! $allowWithoutCurrentAnalysis) {
-                throw new ExternalApiException('historical_analysis_required', false);
-            }
-
-            $snapshot = $this->analysisService->latestDisplayableSnapshot();
-        }
-
-        $calendar = $this->calendarService->forDate($targetDate);
-        $topWinners = Wallpaper::query()
-            ->whereNotNull('prize_vnd')
-            ->orderByDesc('prize_vnd')
-            ->limit(20)
-            ->get(['target_date', 'prize_vnd', 'title', 'art_style', 'composition'])
-            ->toArray();
-        $recentStyles = Wallpaper::query()
-            ->whereNotNull('art_style')
-            ->orderByDesc('target_date')
-            ->limit(30)
-            ->pluck('art_style')
-            ->values()
-            ->all();
-        $rejected = $wallpaper === null
-            ? []
-            : $wallpaper->proposals()
-                ->whereIn('status', $reproposal ? ['rejected', 'proposed'] : ['rejected'])
-                ->orderBy('sequence')
-                ->get(['title', 'art_style', 'composition'])
-                ->toArray();
-
-        $input = json_encode([
+    public function composition(string $targetDate, ?Wallpaper $wallpaper = null): array
+    {
+        $input = [
             'target_date' => $targetDate,
-            'calendar' => $calendar,
-            'feng_shui_policy' => FengShuiPolicy::context(),
-            'historical_analysis_markdown' => $snapshot->summary ?? '',
-            'top_winners' => $topWinners,
-            'recent_art_styles' => $recentStyles,
-            'rejected_same_day_proposals' => $rejected,
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-        $instructions = $this->compositionInstructions(
-            CarbonImmutable::parse($targetDate, config('lucky.timezone'))->format('Y年n月j日'),
-        );
-        $schema = json_encode(
-            OpenAiClient::PROPOSAL_SCHEMA,
-            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR,
-        );
-        $prettyInput = json_encode(
-            json_decode($input, true, flags: JSON_THROW_ON_ERROR),
-            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR,
-        );
-        $outputInstructions = $includeImage ? <<<PROMPT
-以下の入力データを使って構図を1案だけ決め、その構図の説明JSONと、その内容に一致する壁紙画像を同じ回答で作成してください。
-構図の説明だけで終了せず、画像生成機能を実際に使用し、生成処理の完了まで待ってください。途中の構図確認は不要です。
-
-出力は次の2点です。
-1. 次のJSON Schemaに一致する構図の説明JSONオブジェクト。JSON部分には説明文やコードフェンス、ファイル名、ダウンロードリンクを混ぜないでください。
-回答と同じ内容をUTF-8のJSONファイル（wallpaper-composition-{$targetDate}.json）としてダウンロードできるようにしてください。
-2. そのJSONのtitle、art_style、overview、composition、composition_zone、color_wu_xingとfeng_shuiの必須条件に従ったスマートフォン用の縦長壁紙画像1枚。縦横比は9:16、推奨サイズは1440×2560pxです。
-画像内には文字、数字、ロゴ、署名、透かしを一切入れないでください。
-ロック画面の時計やアイコンが重なる上部と下部は情報量を抑え、主要モチーフは安全領域に配置してください。
-金額・通貨・過去実績・当選確率・分析上の注意書きや採用理由など、symbolismにまとめた説明は画像に描き込まないでください。
-JSONと画像はそれぞれ別のファイルとして保存できるように提供し、JSON本文を画像内に描画しないでください。
-
-納品方法（必須）:
-生成した画像をチャット内にプレビュー表示し、表示したものと同じ画像の実ファイルをダウンロードできるようにしてください。画像の説明文やファイル名だけでは納品完了ではありません。
-画像ファイルはPNG（wallpaper-{$targetDate}.png）またはJPEG（wallpaper-{$targetDate}.jpg）で提供し、拡張子を実際の形式に合わせてください。
-最終回答には構図JSON本文、JSONファイルの添付またはダウンロードリンク、画像プレビュー、画像ファイルの添付またはダウンロードリンクを含めてください。添付の案内やリンクはJSON本文の外に記載してください。
-保存した画像ファイルを参照できる場合は、![壁紙プレビュー](画像ファイルのURL) と [壁紙画像をダウンロード](同じ画像ファイルのURL) の両方を、コードフェンスで囲まずに出力してください。URL部分は実際に作成したファイルの有効な参照先に置き換えてください。
-画像ファイルを直接参照できない場合は、画像生成機能の標準の画像表示と保存・ダウンロード操作を利用できる形で提示してください。
-回答を終える前に、画像生成の成功と、JSON・画像の両方を表示・保存するための添付や参照先をツール結果で確認してください。生成済み画像の提示が欠けている場合は、その画像を再添付・再表示してください。
-feng_shui.color_judgementが吉の場合だけ画像を生成してください。生成画像を確認できる場合は、指定した配色・流れ・形状と禁止条件に照らし、違反があれば修正してから提供してください。画像自体を確認できない場合は未確認であることをJSON本文の外で明記し、確認済みと偽らないでください。
-画像生成やファイル提供ができない場合は、できなかった内容と理由を明記してください。未作成のファイルへのリンクや架空のURLを出したり、画像を提供していないのに完了と報告したりしないでください。
-PROMPT : <<<PROMPT
-回答は次のJSON Schemaに一致するJSONオブジェクトだけにしてください。説明文やコードフェンスは付けないでください。
-回答と同じ内容をUTF-8のJSONファイル（wallpaper-composition-{$targetDate}.json）としてダウンロードできるようにしてください。
-JSONファイルは回答本文とは別の添付として提供し、本文には「同内容のJSON: ...」などの案内文、ファイル名、ダウンロードリンク（sandbox:で始まるパスを含む）を追加しないでください。
-PROMPT;
+            'personal_star' => KigakuPolicy::PERSONAL_STAR,
+            'timezone' => config('lucky.timezone'),
+            'direction_labels' => KigakuPolicy::DIRECTIONS,
+        ];
+        if ($wallpaper !== null) {
+            $input['previous_same_day_proposals'] = $wallpaper->proposals()->orderBy('sequence')
+                ->get(['title', 'art_style', 'composition'])->toArray();
+        }
+        $prettyInput = json_encode($input, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
+        $schema = json_encode(KigakuPolicy::schema(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
+        $version = KigakuPolicy::VERSION;
         $prompt = <<<PROMPT
-{$instructions}
+あなたは九星気学を基にスマートフォン壁紙を制作するアートディレクターです。
+対象日は{$targetDate}です。本命星は六白金星です。入力のタイムゾーンにおける対象日として判断してください。
+九星気学による吉方位の判定、象意に基づく構図1案、その構図に一致する壁紙画像1枚を同じ回答で作成してください。
+途中の構図確認は不要です。画像生成機能を実際に使用し、生成処理の完了まで待ってください。
 
-以下の入力データを使って構図を1案だけ提案してください。
-{$outputInstructions}
+判定と構図:
+- 年盤・月盤・日盤の採用範囲や流派・判定方式はあなたが選び、methodに明記してください。採用した暦の基準・日付の切り替わりも説明してください。
+- 対象日の根拠を確認して本命星との関係から判定し、reasonに具体的な根拠を書いてください。確認できた参照資料だけをreferencesに記録し、架空の資料・URLを作らないでください。参照資料がなければ空配列にしてください。
+- 吉方位ありはstatus=auspiciousとし、candidate_directionsに候補を列挙し、その中から構図に使うprimary_directionを1つだけ選んで採用理由を説明してください。fallback_reasonはnullです。
+- 判定の結果、吉方位がない場合はstatus=noneとします。暦や根拠を確認できず判断できない場合はstatus=undeterminedとし、なしと区別してください。
+- noneとundeterminedではcandidate_directions=[]、primary_direction=nullとし、fallback_reasonに理由を書いてください。どちらも六白金星の象意から補完構図を作り、吉方位に基づく構図と偽らないでください。
+- 主方位の象意に因んだ動植物・色・形・素材などを選んで構図を決め、motifsに各モチーフと象意の対応を記録してください。補完時は六白金星との対応を書いてください。
+- 画面上の上下左右を実際の方位と読み替えないでください。過去の当選実績を参照した推奨や当選確率の予測は行わないでください。
+- previous_same_day_proposalsがある場合は、それらと実質的に異なる構図を考えてください。これは同日の作り直し用であり、過去実績ではありません。
+- title、art_style、overview、composition、color_wu_xingには描画に必要な内容を書き、解釈と採用理由はsymbolismとkigakuにまとめてください。必要なモチーフを説明欄だけに書かないでください。
+- titleとart_styleは各255文字以内、conclusionは「構図名 × 画風」の1行にしてください。
 
+画像と納品:
+- 縦長9:16、推奨1440×2560px。文字、数字、ロゴ、署名、透かしを入れないでください。時計やアイコンが重なる上部と下部は情報量を抑え、主要モチーフは安全領域に配置してください。
+- JSON本文、方位名、鑑定理由、注記は画像に描き込まないでください。構図説明と一致する画像を作成してください。
+- 次のJSON Schemaに一致するJSONオブジェクト本文と、同内容のUTF-8ファイル（wallpaper-composition-{$targetDate}.json）を提供してください。JSON内部に説明文やダウンロードリンクを混ぜないでください。
+- 画像をチャット内にプレビュー表示し、表示したものと同じ実画像をPNG（wallpaper-{$targetDate}.png）またはJPEG（wallpaper-{$targetDate}.jpg）として添付・ダウンロード可能にしてください。JSONと画像は別ファイルです。
+- 実ファイルを参照できる場合は、![壁紙プレビュー](実画像のURL) と [壁紙画像をダウンロード](同じ実画像のURL) をコードフェンスの外に表示してください。
+- 直接参照できない場合は、画像生成機能の標準の画像表示と保存・ダウンロード操作を利用できる形で提示してください。
+- 完了前に、JSON・画像の両方の生成成功と添付・参照先をツール結果で確認してください。生成済み画像の提示が欠けている場合は再添付・再表示してください。
+- 画像生成やファイル提供ができない場合は、できなかった内容と理由を明記してください。未作成のファイルへのリンクや架空のURLを出さないでください。
+
+仕様バージョン: {$version}
 JSON Schema:
 {$schema}
 
 入力データ:
 {$prettyInput}
 PROMPT;
-        $inputHash = hash(
-            'sha256',
-            ($snapshot->data_hash ?? '').'|'.($snapshot->prompt_version ?? config('lucky.openai.prompt_version')).'|'.$input,
-        );
+        $inputHash = hash('sha256', $version.'|'.$prettyInput);
 
         return [
-            'instructions' => $instructions,
-            'input' => $input,
-            'input_hash' => $inputHash,
             'prompt' => $prompt,
-            'prompt_hash' => hash('sha256', config('lucky.openai.prompt_version').'|'.$prompt),
+            'input_hash' => $inputHash,
+            'prompt_hash' => hash('sha256', $version.'|'.$prompt),
             'context_hash' => $inputHash,
-            'filename' => ($includeImage ? 'wallpaper-creation-' : 'wallpaper-composition-').$targetDate.'.txt',
-            'calendar' => $calendar,
-            'analysis_hash' => $snapshot?->data_hash,
+            'filename' => 'wallpaper-creation-'.$targetDate.'.txt',
         ];
     }
 
-    /**
-     * @return array{
-     *     prompt: string,
-     *     prompt_hash: string,
-     *     context_hash: string,
-     *     filename: string
-     * }
-     */
     public function image(Wallpaper $wallpaper, ?CompositionProposal $proposal = null): array
     {
         $details = $proposal ?? $wallpaper;
-        $policyProposal = $proposal;
-        if ($policyProposal === null && $wallpaper->exists) {
-            $policyProposal = $wallpaper->chosen_proposal_id !== null
-                ? $wallpaper->proposals()->whereKey($wallpaper->chosen_proposal_id)->first()
-                : $wallpaper->proposals()->where('status', 'proposed')->orderByDesc('sequence')->first();
-        }
-        $selection = $policyProposal?->calendar_context['feng_shui'] ?? null;
         $symbolism = $this->imageSymbolism($details->symbolism);
         $prompt = implode("\n\n", [
-            'スマートフォン用の縦長壁紙を1枚制作してください。画像内には文字、数字、ロゴ、署名、透かしを一切入れないでください。',
+            'スマートフォン用の縦長壁紙を1枚制作してください。縦横比9:16、推奨1440×2560px。画像内には文字、数字、ロゴ、署名、透かしを一切入れないでください。',
             '構図名: '.$details->title,
             '画風: '.$details->art_style,
             '概要: '.$details->overview,
             '配置: '.$details->composition,
-            '九宮構図: '.(Wallpaper::COMPOSITION_ZONE_LABELS[$details->composition_zone] ?? '未分類'),
             '色彩: '.$details->color_wu_xing,
             ...($symbolism === '' ? [] : ['補足描写: '.$symbolism]),
             '視認性: ロック画面の時計やアイコンが重なる上部と下部は情報量を抑え、主要モチーフは安全領域に配置する。',
-            FengShuiPolicy::visualInstructions($selection),
+            '保存済み構図に一致する画像を作成してください。画像生成を実行し、生成した実画像をプレビュー表示して、同じPNGまたはJPEGをダウンロードできるよう提供してください。',
         ]);
 
         return [
             'prompt' => $prompt,
-            'prompt_hash' => hash('sha256', config('lucky.openai.prompt_version').'|'.$prompt),
-            'context_hash' => hash(
-                'sha256',
-                ($proposal === null ? $wallpaper->compositionDetails() : $proposal->input_hash).'|image|'.$prompt,
-            ),
+            'prompt_hash' => hash('sha256', KigakuPolicy::VERSION.'|'.$prompt),
+            'context_hash' => hash('sha256', ($proposal->id ?? '').'|'.$prompt),
             'filename' => 'wallpaper-image-'.$wallpaper->target_date->format('Y-m-d').'.txt',
         ];
     }
@@ -234,138 +129,81 @@ PROMPT;
         return implode("\n", $descriptions);
     }
 
-    public function parseProposal(string $json): array
+    public function parseProposal(string $json, string $targetDate): array
     {
         $json = trim($json);
-        if (preg_match('/\A```(?:json)?\s*(.*?)\s*```\z/is', $json, $matches) === 1) {
+        if (preg_match('/\A\x60{3}(?:json)?\s*(.*?)\s*\x60{3}\z/is', $json, $matches) === 1) {
             $json = trim($matches[1]);
         }
-
         try {
             $payload = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
         } catch (JsonException) {
-            throw ValidationException::withMessages([
-                'proposal_json' => '構図提案を有効なJSON形式で入力してください。',
-            ]);
+            throw ValidationException::withMessages(['proposal_json' => '構図を有効なJSON形式で入力してください。']);
         }
         if (! is_array($payload) || array_is_list($payload)) {
-            throw ValidationException::withMessages([
-                'proposal_json' => '構図提案はJSONオブジェクトで入力してください。',
-            ]);
+            throw ValidationException::withMessages(['proposal_json' => '構図はJSONオブジェクトで入力してください。']);
         }
-
-        $unexpected = array_diff(array_keys($payload), self::PROPOSAL_FIELDS);
-        if ($unexpected !== []) {
-            throw ValidationException::withMessages([
-                'proposal_json' => '構図提案に未対応の項目が含まれています: '.implode(', ', $unexpected),
-            ]);
+        if (! isset($payload['kigaku']) || array_diff(array_keys($payload), [...KigakuPolicy::COMPOSITION_FIELDS, 'kigaku']) !== []) {
+            throw ValidationException::withMessages(['proposal_json' => '九星気学の新しい形式が必要です。最新のプロンプトでJSONを作成し直してください。']);
         }
-
-        $validator = Validator::make($payload, [
-            'title' => ['required', 'string', 'max:255'],
-            'art_style' => ['required', 'string', 'max:255'],
-            'conclusion' => ['required', 'string', 'max:65535'],
-            'overview' => ['required', 'string', 'max:500000'],
-            'composition' => ['required', 'string', 'max:500000'],
-            'composition_zone' => ['required', 'string', Rule::in(Wallpaper::COMPOSITION_ZONES)],
-            'color_wu_xing' => ['required', 'string', 'max:500000'],
-            'symbolism' => ['required', 'string', 'max:500000'],
-            ...FengShuiPolicy::validationRules(),
-        ], [
+        $rules = [];
+        foreach (KigakuPolicy::COMPOSITION_FIELDS as $field) {
+            $rules[$field] = ['required', 'string', 'max:'.(in_array($field, ['title', 'art_style'], true) ? 255 : ($field === 'conclusion' ? 65535 : 500000))];
+        }
+        $validator = Validator::make($payload, [...$rules, ...KigakuPolicy::validationRules($targetDate)], [
             'required' => ':attributeは必須です。',
-            'string' => ':attributeは文字列で入力してください。',
-            'max' => ':attributeは:max文字以内で入力してください。',
-        ], array_combine(self::PROPOSAL_FIELDS, self::PROPOSAL_FIELDS));
+            'in' => ':attributeが対象日・本命星・方位の指定と一致しません。',
+            'max' => ':attributeは:max以内にしてください。',
+        ]);
         if ($validator->fails()) {
-            throw ValidationException::withMessages([
-                'proposal_json' => $validator->errors()->hasAny(['feng_shui', 'feng_shui.*'])
-                    ? '風水の配色評価または構図指定が基準に一致しません。主色・五行の内訳、吉とする根拠、流れ・形状を最新のプロンプトで確認してください。'
-                    : implode(' ', $validator->errors()->all()),
-            ]);
+            throw ValidationException::withMessages(['proposal_json' => implode(' ', $validator->errors()->all())]);
         }
-        if (! collect($payload['feng_shui']['palette'])->contains('role', '主色')) {
-            throw ValidationException::withMessages([
-                'proposal_json' => '風水の配色評価には、少なくとも1つの主色の指定が必要です。',
-            ]);
+        $result = $validator->validated();
+        $kigaku = $result['kigaku'];
+        if ($kigaku['status'] === 'auspicious') {
+            if ($kigaku['primary_direction'] === null
+                || ! in_array($kigaku['primary_direction'], $kigaku['candidate_directions'], true)
+                || $kigaku['fallback_reason'] !== null) {
+                throw ValidationException::withMessages(['proposal_json' => '主方位は吉方位の候補から1つ選び、補完理由はnullにしてください。']);
+            }
+        } elseif ($kigaku['candidate_directions'] !== [] || $kigaku['primary_direction'] !== null
+            || trim($kigaku['fallback_reason'] ?? '') === '') {
+            throw ValidationException::withMessages(['proposal_json' => '吉方位なし・判定不能では方位を空にし、補完理由を記録してください。']);
         }
 
-        return $validator->validated();
+        return $result;
     }
 
-    public function saveProposal(
-        Wallpaper $wallpaper,
-        array $result,
-        string $expectedInputHash,
-        bool $reproposal,
-        bool $allowWithoutCurrentAnalysis = false,
-    ): CompositionProposal {
-        // API output must pass the same checks as manually submitted JSON.
-        $result = $this->parseProposal(json_encode($result, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
-        $selection = $result['feng_shui'];
-        unset($result['feng_shui']);
+    public function saveProposal(Wallpaper $wallpaper, array $result, string $expectedInputHash, bool $reproposal): CompositionProposal
+    {
+        $result = $this->parseProposal(json_encode($result, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), $wallpaper->target_date->format('Y-m-d'));
 
-        return DB::transaction(function () use ($wallpaper, $result, $selection, $expectedInputHash, $reproposal, $allowWithoutCurrentAnalysis): CompositionProposal {
+        return DB::transaction(function () use ($wallpaper, $result, $expectedInputHash, $reproposal): CompositionProposal {
             $wallpaper = Wallpaper::query()->lockForUpdate()->findOrFail($wallpaper->id);
-            $prepared = $this->composition(
-                $wallpaper->target_date->format('Y-m-d'),
-                $wallpaper,
-                $reproposal,
-                $allowWithoutCurrentAnalysis,
-            );
+            $prepared = $this->composition($wallpaper->target_date->format('Y-m-d'), $reproposal ? $wallpaper : null);
             if (! hash_equals($prepared['input_hash'], $expectedInputHash)) {
                 throw new ExternalApiException('composition_prompt_stale', false);
             }
-
-            if ($reproposal) {
-                $wallpaper->proposals()->where('status', 'proposed')->update(['status' => 'rejected']);
-            }
-
+            $kigaku = $result['kigaku'];
+            unset($result['kigaku']);
+            $wallpaper->proposals()->where('status', 'proposed')->update(['status' => 'rejected']);
             $proposal = $wallpaper->proposals()->create([
                 ...$result,
                 'sequence' => ((int) $wallpaper->proposals()->max('sequence')) + 1,
-                'status' => 'proposed',
-                'calendar_context' => [
-                    ...$prepared['calendar'],
-                    'feng_shui_policy_version' => FengShuiPolicy::VERSION,
-                    'feng_shui' => $selection,
-                ],
-                'analysis_hash' => $prepared['analysis_hash'],
+                'status' => 'approved',
+                'calendar_context' => ['policy_version' => KigakuPolicy::VERSION, 'kigaku' => $kigaku],
+                'analysis_hash' => null,
                 'input_hash' => $prepared['input_hash'],
             ]);
             $wallpaper->update([
                 ...$result,
-                'state' => 'proposed',
-                'warnings' => $prepared['calendar']['warnings'] ?? [],
-                'chosen_proposal_id' => null,
+                'composition_zone' => null,
+                'state' => 'generated',
+                'warnings' => [],
+                'chosen_proposal_id' => $proposal->id,
             ]);
 
             return $proposal;
         });
-    }
-
-    private function compositionInstructions(string $targetDate): string
-    {
-        $fengShui = FengShuiPolicy::compositionInstructions();
-
-        return <<<PROMPT
-あなたは金運をテーマにしたスマートフォン壁紙のアートディレクターです。
-これは{$targetDate}用のスマートフォン壁紙です。
-対象日に使用することを前提に、入力された暦情報を反映した構図を提案してください。
-composition_zone は主要モチーフの視覚的重心を基準に、top_left、top、top_right、left、center、right、bottom_left、bottom、bottom_rightのいずれか1つを選んでください。
-historical_analysis_markdown の傾向、反例、注意点、活用指針を構図検討に反映してください。
-画風は連続利用を避け、絵画、実写写真、彫刻写真など幅広くローテーションしてください。
-動植物、人物、現象、天体、抽象像、無機物、建築などあらゆるモチーフを利用できます。
-過去実績を参照しつつ、未知の構図やモチーフも探索してください。
-暦情報は入力された値だけを使い、欠損値を推測で補ってはいけません。
-同日の却下案と実質的に同じ提案をしてはいけません。
-title、art_style、overview、composition、color_wu_xingは画像作成に使用するため、被写体、配置、色彩、質感、光、画風など描画に必要な情報だけを書いてください。
-具体的な金額・通貨・購入口数、過去実績の件数・割合・比較、当選確率、分析上の注意書き、採用理由、暦や五行の解釈は画像作成に不要なので、これらの項目には含めずsymbolismにまとめてください。
-color_wu_xingには実際に描く色・配色・素材の見え方を書き、五行を選んだ理由はsymbolismに書いてください。
-symbolismは説明用です。象徴を表現するために必要なモチーフや視覚的特徴はsymbolismだけに書かず、overview、composition、color_wu_xingにも具体的に記述してください。
-titleとart_styleはそれぞれ255文字以内にしてください。
-結論は「構図名 × 画風」の1行にしてください。
-
-{$fengShui}
-PROMPT;
     }
 }

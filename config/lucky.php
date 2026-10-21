@@ -18,18 +18,6 @@ return [
         'max_block_pages' => 300,
         'max_page_body_bytes' => 1_000_000,
     ],
-    'openai' => [
-        'api_key' => env('OPENAI_API_KEY'),
-        'text_model' => env('OPENAI_TEXT_MODEL', 'gpt-6-sol'),
-        'image_model' => env('OPENAI_IMAGE_MODEL', 'gpt-image-2'),
-        'reasoning_effort' => env('OPENAI_REASONING_EFFORT', 'medium'),
-        'prompt_version' => env('OPENAI_PROMPT_VERSION', 'v1'),
-        'timeout' => (int) env('OPENAI_TIMEOUT', 180),
-    ],
-    'analysis' => [
-        'records_per_chunk' => 100,
-        'characters_per_chunk' => 120_000,
-    ],
     'image' => [
         'width' => 1440,
         'height' => 2560,

@@ -1,93 +1,89 @@
 # Lucky Wallpaper
 
-サーバーに保存した過去実績を参照し、金運をテーマにしたスマートフォン壁紙の構図提案・画像生成・実績登録を行う単一管理者向けシステムです。Notion連携は実績情報と画像のバックアップ、およびバックアップからの復元に使用します。
+九星気学を基にスマートフォン壁紙を作成し、壁紙と宝くじの実績を記録する単一管理者向けシステムです。本命星は六白金星に固定しています。
 
-提案は「過去実績との相関に基づく創作上の傾向」であり、宝くじの当選や当選確率の向上を保証しません。
+対象日用の指示プロンプトをユーザーが外部AIへ手動で渡し、吉方位の判定、象意に基づく構図、壁紙画像をまとめて作成してもらいます。返された構図JSONと画像を一括登録し、後から賞金と任意の購入口数を登録します。AI APIへの送信経路や傾向分析機能はありません。
 
-新しい壁紙の提案には、六白金星と五行の調和を基にした配色評価と構図の必須条件を適用します。色名の一律禁止は行わず、構図JSONの `feng_shui` にある色の役割・五行・吉の評価と根拠・流れ・形状を登録時に検証し、画像作成にも条件を引き継ぎます。基準と検証範囲は[壁紙の風水基準](docs/feng-shui-policy.md)を参照してください。
+AIが判定方式を選び、採用方式・根拠・参照資料を記録します。「吉方位なし」と「判定不能」は区別し、どちらも六白金星の象意から補完構図を作成します。アプリは入力の形式・整合性を検証し、鑑定の正しさや当選確率の向上を保証するものではありません。保存形式は[九星気学の記録仕様](docs/kigaku-policy.md)を参照してください。
 
 ## 技術構成
 
 - Laravel 13 / PHP 8.3以上
 - Inertia 2 / React 19 / TypeScript / Tailwind CSS 4
-- MySQL / DBキュー
+- MySQL / DBキュー（Notion連携用）
 - Laravel Passkeys（WebAuthn）
-- Notion API `2026-03-11`
-- OpenAI Responses API / Image API（画面で明示的に選択した場合のみ）
+- Notion API `2026-03-11`（任意）
 
 ReactはViteで事前ビルドし、SSRや本番Nodeプロセスを使用しません。
 
 ## ローカルセットアップ
 
-実DBへマイグレーションを適用する前に、接続先がローカル開発DBであることを確認してください。
+DBの接続先がローカル開発用であることを確認してから実行します。
 
-```bash
-cp .env.example .env
+~~~powershell
+Copy-Item .env.example .env
 composer install
-npm ci --cache /tmp/lucky-wallpaper-npm-cache
+npm ci
 php artisan key:generate
-```
+~~~
 
-`.env`にMySQL接続、HTTPSの`APP_URL`、各サービスの秘密情報を設定します。
+.envにMySQL接続、HTTPSのAPP_URL、初回設定用APP_SETUP_KEY、APP_KEYとは別のPASSKEYS_USER_HANDLE_SECRETを設定します。秘密情報は.env以外へ保存しないでください。初回起動後、/setupで管理者を1件だけ作成します。パスワードはArgon2idで保存されます。
 
-```dotenv
-APP_URL=https://wallpaper.example.com
-APP_SETUP_KEY=十分に長いランダム値
-PASSKEYS_USER_HANDLE_SECRET=APP_KEYとは別の十分に長いランダム値
-NOTION_TOKEN=
-OPENAI_API_KEY=
-WALLPAPER_DELETE_AFTER_NOTION_BACKUP=true
-```
-
-`NOTION_TOKEN`は任意です。未設定でも実績登録、壁紙作成、履歴管理などのサーバー機能は利用できますが、Notionへのバックアップとバックアップからの復元は利用できません。`WALLPAPER_DELETE_AFTER_NOTION_BACKUP=true`の場合は、バックアップ成功後にサーバー上の画像を削除するため、バックアップ済み画像のダウンロードにはNotion接続が必要です。`false`にすると、バックアップ後もサーバー上の画像を保持します。
-
-`OPENAI_API_KEY`も任意です。壁紙作成画面の初期値は「手動（ChatGPT）」です。「壁紙作成プロンプト」をコピーまたはダウンロードし、AIに構図の説明JSONと壁紙画像をまとめて作成してもらいます。返されたJSONを貼り付けるかUTF-8のファイルから入力し、JPEG・PNG・WebP形式（最大20MB）の画像と一緒に登録します。登録が完了すると構図と画像を壁紙詳細に表示します。傾向分析結果はMarkdownで入力します。既存の構図への画像登録・再提案は詳細画面から行えます。APIを選択した場合だけ確認画面を経てOpenAI APIへ送信します。
-
-手動画像アップロードを利用する環境では、PHPの`upload_max_filesize`を20MBより大きい値に設定してください。構図JSONと画像を同時に送信するため、`post_max_size`は32MB以上を推奨します。
-
-傾向分析は初回の結果と分析済みデータの照合情報を保存し、次回から前回結果・追加データ・高額当選の分類が変わったデータだけをAIに渡します。件数や上位25%の基準額は全履歴からアプリ側で再集計します。変更がなければ前回結果を利用し、APIは呼び出しません。
-
-新しい分析の切り口は「全件再分析の提案」として保存します。「全件再分析を確認」で理由と切り口を確認し、許可した場合だけ全件を再分析します。分析済みデータの修正・削除、分析方法の更新、差分照合情報のない旧結果からの移行も全件再分析の確認対象です。過去の要約だけでは判断できない比較は保留します。手動分析中に履歴・前回結果が変わった場合はプロンプトとデータJSONを再取得してください。
-
-外部画像は受信時に20MB、デコード前に一辺8192px・合計1600万pxを上限として検証します。Notion本文の復元も、最大深度20・合計10,000ブロック・300 APIページ・本文1MBを上限とし、上限超過時は安全に中断します。
-
-復元は前回の成功時刻以降に更新されたNotion実績を対象とし、サーバーに存在する実績は上書きしません。
-サーバー上の履歴データを削除しても、Notionバックアップは削除・変更されません。
-
-秘密情報は`.env`以外へ保存しないでください。初回起動後、`/setup`で管理者を1件だけ作成します。パスワードはArgon2idで保存されます。
-
-開発DBへ適用する場合:
-
-```bash
+~~~powershell
 php artisan migrate
 npm run build
 php artisan serve
-```
+~~~
+
+この仕様変更で新しいDBマイグレーションは追加していません。過去の壁紙・実績・旧分析履歴は保持します。
+
+## 壁紙作成と実績確認
+
+1. 「壁紙作成」で対象日を選択します。初期値は設定タイムゾーンにおける翌日です。
+2. 「壁紙作成プロンプトを作成」で指示をコピーまたはダウンロードし、画像生成できる外部AIへ手動で渡します。
+3. AIが返したJSONを貼り付けるかUTF-8ファイルから読み込み、画像と一緒に登録します。
+4. 壁紙詳細で画像・構図・主方位・採用方式・根拠を確認します。
+5. 「実績登録」で賞金（VND、0以上の整数）と任意の購入口数を登録します。
+6. ダッシュボードで主方位別の件数・賞金合計・1日平均・1口あたり賞金を確認します。期間を指定し、各行から同じ条件の壁紙履歴へ移動できます。
+
+1日につき壁紙は1件です。画像がない既存レコードでは構図と画像の再作成、または保存済み構図から画像だけの手動登録ができます。既存画像の暗黙の上書きは行いません。
+
+画像はJPEG・PNG・WebP、最大20MBです。受信時は一辺8192px・合計1600万pxを上限とし、1440×2560のJPEGへ正規化します。PHPのupload_max_filesizeは20MBより大きく、post_max_sizeは32MB以上を推奨します。
+
+## ダッシュボードの集計
+
+採用済み構図に保存した主方位に1件ずつ計上します。複数の候補方位へ重複計上しません。「吉方位なし」「判定不能」「方位情報なし」は別行です。旧データやNotionから復元した本文の方位を推測して集計しません。
+
+- 1日平均 = 賞金合計 ÷ 実績登録件数
+- 1口あたり賞金 = 購入口数が分かる実績の賞金合計 ÷ 同じ実績の購入口数合計
+
+賞金未登録は平均から除外し、0 VNDは実績1件に含めます。購入口数不明は1口あたり賞金の分子・分母から除外し、対象件数も表示します。計算対象のない平均は「—」です。期間は壁紙の対象日の開始日・終了日を両端含みで適用し、初期値は全期間です。
+
+## Notionバックアップと復元
+
+NOTION_TOKENは任意です。未設定でも壁紙・実績の記録と閲覧ができます。設定時は実績登録後に賞金・画像をバックアップします。新規Notionページの本文には構図と九星気学の判定情報を含めます。購入口数はサーバーにのみ保存します。既存ページの本文の一括書換えは行いません。
+
+WALLPAPER_DELETE_AFTER_NOTION_BACKUP=trueでは、バックアップ成功後にローカル画像を削除し、閲覧・ダウンロードにNotion接続を使います。falseでは画像をローカルにも保持します。
+
+復元は前回成功時刻以降に更新されたNotion実績を対象とし、サーバーに存在する実績を上書きしません。復元した判定情報は本文として閲覧できますが、構造化データとして復元しないため方位別集計では「方位情報なし」に含めます。本文取得には深度20・10,000ブロック・300 APIページ・1MBの上限があります。サーバーから履歴を削除してもNotionバックアップは変更しません。
 
 ## 主要操作
 
-- `GET /settings/notion-backup`: Notionバックアップと復元の設定画面
-- `POST /notion-syncs`: Notionバックアップから実績情報を非同期復元
-- `GET /wallpaper-analyses`: 傾向分析画面
-- `POST /wallpaper-analyses/manual-prompt`: 手動傾向分析用プロンプトを取得（`full_confirmed`・`perspective`はJSON本文で送信）
-- `POST /wallpaper-analyses/manual-data`: 手動傾向分析用データJSONをダウンロード（`prompt_date`・`prompt_hash`・同じ分析条件をJSON本文で送信）
-- `POST /wallpaper-analyses/manual-result`: ChatGPTの傾向分析結果を保存
-- `POST /wallpaper-analyses`: 高額当選壁紙の傾向分析をOpenAIキューへ登録（明示確認必須）
-- `GET|POST /wallpapers/proposals/manual-*`: 対象日の手動壁紙作成プロンプト取得・構図JSONと画像の一括登録
-- `POST /wallpapers/proposals`: 対象日の構図提案をOpenAIキューへ登録（明示確認必須）
-- `GET|POST /wallpapers/{id}/proposals/manual-*`: 同日の手動再提案プロンプト取得・結果保存
-- `POST /wallpapers/{id}/repropose`: 同日の過去案を除外してOpenAIで再提案（明示確認必須）
-- `GET|POST /wallpapers/{id}/image/manual-*`: 手動画像作成プロンプト取得・画像保存
-- `POST /wallpapers/{id}/image`: 承認案からOpenAIで画像生成（明示確認必須）
-- `POST /wallpapers/{id}/restore-image`: Notionバックアップの画像をサーバーへ復元
-- `GET /wallpapers/{id}/preview`: 認証済み画像プレビュー
-- `PUT /wallpapers/{id}/result`: VND賞金と任意の購入口数を保存。Notionバックアップ対象は賞金と画像のみ
-- `GET /operations/{id}`: 非同期処理の進捗
-- `GET /wallpapers/{id}/download`: 認証済み画像ダウンロード
+- `GET /dashboard`: 主方位別実績集計。date_from・date_toで期間指定
+- `GET /wallpapers`: 履歴。date_from・date_to・directionで絞り込み
+- `GET /wallpapers/proposals/manual-prompt`: 対象日の作成プロンプト
+- `POST /wallpapers/proposals/manual-result`: 構図JSONと画像の一括登録
+- `GET|POST /wallpapers/{id}/proposals/manual-*`: 手動再作成プロンプト・一括登録
+- `GET|POST /wallpapers/{id}/image/manual-*`: 保存済み構図の手動画像作成・登録
+- `GET /wallpapers/{id}/preview`・`download`: 認証済み画像表示・保存
+- `PUT /wallpapers/{id}/result`: 賞金と購入口数の登録
+- `GET /settings/notion-backup`・`POST /notion-syncs`: バックアップ設定・復元
+- `POST /wallpapers/{id}/restore-image`: Notion画像をローカルへ復元
+- `GET /operations/{id}`: Notion非同期処理の進捗
 
 ## 品質確認
 
-```bash
+~~~powershell
 php artisan test
 vendor/bin/pint --test
 vendor/bin/phpstan analyse --memory-limit=1G
@@ -98,8 +94,10 @@ npm run build
 composer audit
 npm audit
 php artisan schedule:list
-```
+~~~
+
+WindowsでGDが既定で有効でない場合は、例えば`php -d extension=D:\php\ext\php_gd.dll vendor/bin/phpunit`で画像テストを実行します。
 
 ## Hostinger
 
-`main`へのpush後、テスト成功時にGitHub ActionsからHostingerへ自動デプロイできます。本番前提、GitHub Secrets、公開ディレクトリ、cron、キューの詳細は [docs/hostinger.md](docs/hostinger.md) を参照してください。
+mainへのpush後、テスト成功時にGitHub ActionsからHostingerへ自動デプロイできます。切替時の旧AIワーカー停止、残キューの扱い、cronなどは[配置・運用手順](docs/hostinger.md)を参照してください。

@@ -2,6 +2,7 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DeleteWallpaperDialog } from '@/components/wallpaper-delete-dialogs';
+import { WallpaperFilters, WallpaperFilterValues } from '@/components/wallpaper-filters';
 import AppLayout from '@/layouts/app-layout';
 import { wallpaperStateLabel } from '@/lib/wallpaper-state';
 import { SharedData } from '@/types';
@@ -15,11 +16,16 @@ interface Wallpaper {
     art_style: string | null;
     prize_vnd: number | null;
     state: string;
+    direction_label: string;
 }
 
 export default function WallpaperIndex({
     wallpapers,
+    filters,
+    directionLabels,
 }: {
+    filters: WallpaperFilterValues;
+    directionLabels: Record<string, string>;
     wallpapers: { data: Wallpaper[]; links: { url: string | null; label: string; active: boolean }[] };
 }) {
     const { flash } = usePage<SharedData>().props;
@@ -34,6 +40,14 @@ export default function WallpaperIndex({
                     </CardHeader>
                     <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
                         {flash.status && <Alert className="mb-4">{flash.status}</Alert>}
+                        <div className="mb-5">
+                            <WallpaperFilters
+                                key={JSON.stringify(filters)}
+                                filters={filters}
+                                action={route('wallpapers.index')}
+                                directionLabels={directionLabels}
+                            />
+                        </div>
                         <div className="min-w-0 rounded-md border">
                             <table className="block w-full text-left text-sm md:table">
                                 <thead className="hidden md:table-header-group">
@@ -41,6 +55,7 @@ export default function WallpaperIndex({
                                         <th className="p-3">対象日</th>
                                         <th className="p-3">構図</th>
                                         <th className="p-3">画風</th>
+                                        <th className="p-3">主方位</th>
                                         <th className="p-3">賞金</th>
                                         <th className="p-3">状態</th>
                                         <th>
@@ -51,7 +66,7 @@ export default function WallpaperIndex({
                                 <tbody className="block w-full md:table-row-group">
                                     {wallpapers.data.length === 0 && (
                                         <tr className="block md:table-row">
-                                            <td colSpan={6} className="text-muted-foreground block p-6 text-center md:table-cell">
+                                            <td colSpan={7} className="text-muted-foreground block p-6 text-center md:table-cell">
                                                 壁紙はまだ登録されていません。
                                             </td>
                                         </tr>
@@ -72,6 +87,10 @@ export default function WallpaperIndex({
                                             <td className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3 md:table-cell md:p-3">
                                                 <span className="text-muted-foreground font-medium md:hidden">画風</span>
                                                 <span className="min-w-0 break-words">{wallpaper.art_style ?? '-'}</span>
+                                            </td>
+                                            <td className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3 md:table-cell md:p-3">
+                                                <span className="text-muted-foreground font-medium md:hidden">主方位</span>
+                                                <span>{wallpaper.direction_label}</span>
                                             </td>
                                             <td className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3 md:table-cell md:p-3 md:whitespace-nowrap">
                                                 <span className="text-muted-foreground font-medium md:hidden">賞金</span>

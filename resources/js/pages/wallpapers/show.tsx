@@ -1,44 +1,20 @@
-import {
-    ApiConfirmationButton,
-    ExecutionMode,
-    ExecutionModeSelector,
-    fetchManualPrompt,
-    ManualPrompt,
-    ManualPromptPanel,
-    ManualResultField,
-} from '@/components/ai-workflow-controls';
+import { fetchManualPrompt, ManualPrompt, ManualPromptPanel } from '@/components/ai-workflow-controls';
 import { ClipboardCopyButton } from '@/components/clipboard-copy-button';
 import InputError from '@/components/input-error';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Kigaku, KigakuDetails } from '@/components/kigaku-details';
+import { ManualWallpaperForm } from '@/components/manual-wallpaper-form';
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { DeleteWallpaperDialog, DeleteWallpaperImageDialog } from '@/components/wallpaper-delete-dialogs';
-import { Operation, useOperation } from '@/hooks/use-operation';
 import AppLayout from '@/layouts/app-layout';
-import { proposalStatusLabel, wallpaperStateLabel } from '@/lib/wallpaper-state';
 import { SharedData } from '@/types';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
-import { ArchiveRestore, ChartNoAxesCombined, ChevronLeft, ChevronRight, Download, LoaderCircle } from 'lucide-react';
+import { ArchiveRestore, ChevronLeft, ChevronRight, Download, LoaderCircle } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 
-interface Proposal {
-    id: number;
-    sequence: number;
-    status: string;
-    title: string;
-    art_style: string;
-    conclusion: string;
-    overview: string;
-    composition: string;
-    color_wu_xing: string;
-    symbolism: string;
-}
-
-interface Wallpaper {
-    id: number;
-    target_date: string;
+interface Composition {
     title: string | null;
     art_style: string | null;
     conclusion: string | null;
@@ -46,15 +22,24 @@ interface Wallpaper {
     composition: string | null;
     color_wu_xing: string | null;
     symbolism: string | null;
-    state: string;
-    warnings?: string[];
-    proposals: Proposal[];
 }
-
+interface Proposal extends Composition {
+    id: number;
+    status: string;
+}
+interface Wallpaper extends Composition {
+    id: number;
+    target_date: string;
+    chosen_proposal_id: number | null;
+    proposals: Proposal[];
+    prize_vnd: number | null;
+    purchase_count: number | null;
+    warnings?: string[];
+}
 export default function ShowWallpaper({
     wallpaper,
-    compositionZoneLabel,
-    latestApiRun,
+    kigaku,
+    directionLabel,
     localImageAvailable,
     downloadAvailable,
     downloadUnavailableReason,
@@ -62,99 +47,47 @@ export default function ShowWallpaper({
     nextWallpaperId,
 }: {
     wallpaper: Wallpaper;
-    compositionZoneLabel: string;
-    latestApiRun: Operation | null;
+    kigaku: Kigaku | null;
+    directionLabel: string;
     localImageAvailable: boolean;
     downloadAvailable: boolean;
     downloadUnavailableReason: string | null;
     previousWallpaperId: number | null;
     nextWallpaperId: number | null;
 }) {
-    const { flash } = usePage<SharedData>().props;
-    const { operation } = useOperation(latestApiRun);
-    const active = operation && ['queued', 'running'].includes(operation.status);
-    const current = wallpaper.proposals.find((proposal) => proposal.status === 'proposed') ?? wallpaper.proposals[0];
-    const details = current ?? (hasCompositionDetails(wallpaper) ? wallpaper : null);
-    const displayedTitle = details?.conclusion || details?.title || '構図の詳細';
-    const compositionDetails = details ? formatCompositionDetails(details, compositionZoneLabel) : '';
-    const canCreateImage = !localImageAvailable && details !== null;
-    const canRestoreImage = !localImageAvailable && current?.status !== 'proposed';
-    const [restoring, setRestoring] = useState(false);
-    const [restoreError, setRestoreError] = useState<string>();
-    const [proposalMode, setProposalMode] = useState<ExecutionMode>('manual');
-    const [imageMode, setImageMode] = useState<ExecutionMode>('manual');
-    const [proposalPrompt, setProposalPrompt] = useState<ManualPrompt>();
+    const { flash, errors } = usePage<SharedData>().props;
+    const selected = wallpaper.proposals.find((p) => p.id === wallpaper.chosen_proposal_id && p.status === 'approved');
+    const current = selected ?? (!localImageAvailable ? wallpaper.proposals.find((p) => p.status === 'proposed') : undefined);
+    const details = current ?? wallpaper;
+    const hasComposition = [details.title, details.overview, details.composition, details.symbolism].some((value) => value?.trim());
     const [imagePrompt, setImagePrompt] = useState<ManualPrompt>();
-    const [proposalPromptLoading, setProposalPromptLoading] = useState(false);
-    const [imagePromptLoading, setImagePromptLoading] = useState(false);
-    const [proposalPromptError, setProposalPromptError] = useState<string>();
-    const [imagePromptError, setImagePromptError] = useState<string>();
-    const proposalForm = useForm({ proposal_json: '', prompt_hash: '' });
-    const imageForm = useForm<{ proposal_id: number | null; prompt_hash: string | null; image: File | null }>({
+    const [promptError, setPromptError] = useState<string>();
+    const [loading, setLoading] = useState(false);
+    const [restoring, setRestoring] = useState(false);
+    const imageForm = useForm<{ proposal_id: number | null; prompt_hash: string; image: File | null }>({
         proposal_id: current?.id ?? null,
-        prompt_hash: null,
+        prompt_hash: '',
         image: null,
     });
-
-    const restoreImage = () =>
-        router.post(
-            route('wallpapers.image.restore', { wallpaper: wallpaper.id }),
-            {},
-            {
-                preserveScroll: true,
-                onStart: () => {
-                    setRestoring(true);
-                    setRestoreError(undefined);
-                },
-                onError: (errors) => setRestoreError(errors.restoreImage),
-                onFinish: () => setRestoring(false),
-            },
-        );
-
-    const loadProposalPrompt = async () => {
-        setProposalPromptLoading(true);
-        setProposalPromptError(undefined);
-        try {
-            const prompt = await fetchManualPrompt(route('wallpapers.reproposal.manual-prompt', { wallpaper: wallpaper.id }));
-            setProposalPrompt(prompt);
-            proposalForm.setData('prompt_hash', prompt.prompt_hash);
-        } catch (error) {
-            setProposalPromptError(error instanceof Error ? error.message : 'プロンプトを取得できませんでした。');
-        } finally {
-            setProposalPromptLoading(false);
-        }
-    };
-
-    const saveProposal = (event: FormEvent) => {
-        event.preventDefault();
-        proposalForm.post(route('wallpapers.reproposal.manual-result', { wallpaper: wallpaper.id }), { preserveScroll: true });
-    };
-
+    const compositionText = [details.conclusion, details.overview, details.composition, details.color_wu_xing, details.symbolism]
+        .filter(Boolean)
+        .join('\n\n');
     const loadImagePrompt = async () => {
-        setImagePromptLoading(true);
-        setImagePromptError(undefined);
+        setLoading(true);
+        setPromptError(undefined);
         try {
-            const prompt = await fetchManualPrompt(
-                route('wallpapers.image.manual-prompt', {
-                    wallpaper: wallpaper.id,
-                    proposal_id: current?.id,
-                }),
-            );
+            const prompt = await fetchManualPrompt(route('wallpapers.image.manual-prompt', { wallpaper: wallpaper.id, proposal_id: current?.id }));
             setImagePrompt(prompt);
             imageForm.setData('prompt_hash', prompt.prompt_hash);
         } catch (error) {
-            setImagePromptError(error instanceof Error ? error.message : 'プロンプトを取得できませんでした。');
+            setPromptError(error instanceof Error ? error.message : 'プロンプトを取得できませんでした。');
         } finally {
-            setImagePromptLoading(false);
+            setLoading(false);
         }
     };
-
     const saveImage = (event: FormEvent) => {
         event.preventDefault();
-        imageForm.post(route('wallpapers.image.manual-result', { wallpaper: wallpaper.id }), {
-            preserveScroll: true,
-            forceFormData: true,
-        });
+        imageForm.post(route('wallpapers.image.manual-result', { wallpaper: wallpaper.id }), { forceFormData: true, preserveScroll: 'errors' });
     };
 
     return (
@@ -164,297 +97,153 @@ export default function ShowWallpaper({
                 { title: wallpaper.target_date, href: route('wallpapers.show', { wallpaper: wallpaper.id }) },
             ]}
         >
-            <Head title={`${wallpaper.target_date} 壁紙`} />
-            <div className="max-w-6xl space-y-6 p-4">
-                {flash.status && <Alert>{flash.status}</Alert>}
-                <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+            <Head title={details.title ?? '壁紙の詳細'} />
+            <div className="min-w-0 space-y-6 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                        <h1 className="text-2xl font-bold">{wallpaper.target_date}</h1>
-                        <p className="text-muted-foreground">状態: {wallpaperStateLabel(wallpaper.state)}</p>
+                        <h1 className="text-xl font-semibold">{details.title ?? '構図名未設定'}</h1>
+                        <p className="text-muted-foreground mt-1 text-sm">
+                            {wallpaper.target_date}・{directionLabel}
+                        </p>
                     </div>
-                    <Button asChild>
-                        <Link href={route('results.index', { date: wallpaper.target_date })}>
-                            <ChartNoAxesCombined aria-hidden="true" />
-                            実績登録
-                        </Link>
-                    </Button>
+                    <div className="flex gap-2">
+                        {previousWallpaperId !== null && (
+                            <Button asChild variant="outline">
+                                <Link href={route('wallpapers.show', { wallpaper: previousWallpaperId })}>
+                                    <ChevronLeft aria-hidden="true" />
+                                    前の壁紙
+                                </Link>
+                            </Button>
+                        )}
+                        {nextWallpaperId !== null && (
+                            <Button asChild variant="outline">
+                                <Link href={route('wallpapers.show', { wallpaper: nextWallpaperId })}>
+                                    次の壁紙
+                                    <ChevronRight aria-hidden="true" />
+                                </Link>
+                            </Button>
+                        )}
+                    </div>
                 </div>
-                <nav className="flex justify-between gap-3" aria-label="壁紙履歴の日付移動">
-                    <Button variant="outline" disabled={previousWallpaperId === null} asChild={previousWallpaperId !== null}>
-                        {previousWallpaperId === null ? (
-                            <span>
-                                <ChevronLeft aria-hidden="true" />
-                                前へ
-                            </span>
-                        ) : (
-                            <Link href={route('wallpapers.show', { wallpaper: previousWallpaperId })}>
-                                <ChevronLeft aria-hidden="true" />
-                                前へ
-                            </Link>
-                        )}
-                    </Button>
-                    <Button variant="outline" disabled={nextWallpaperId === null} asChild={nextWallpaperId !== null}>
-                        {nextWallpaperId === null ? (
-                            <span>
-                                次へ
-                                <ChevronRight aria-hidden="true" />
-                            </span>
-                        ) : (
-                            <Link href={route('wallpapers.show', { wallpaper: nextWallpaperId })}>
-                                次へ
-                                <ChevronRight aria-hidden="true" />
-                            </Link>
-                        )}
-                    </Button>
-                </nav>
-                {active && (
-                    <div className="bg-muted flex items-center gap-2 rounded-lg p-4">
-                        <LoaderCircle className="size-4 animate-spin" />
-                        API処理中です。画面は3秒ごとに更新されます。
-                    </div>
-                )}
-                {operation?.status === 'failed' && (
-                    <Alert variant="destructive">
-                        <AlertTitle>API処理に失敗しました。</AlertTitle>
-                        <AlertDescription>エラーコード: {operation.error_code}</AlertDescription>
-                    </Alert>
-                )}
-                {details && (
-                    <Card>
-                        <CardHeader>
-                            <div className="flex items-start justify-between gap-3">
-                                <CardTitle className="min-w-0 break-words">{displayedTitle}</CardTitle>
-                                <ClipboardCopyButton value={displayedTitle} label="壁紙のタイトル" className="-m-2" />
-                            </div>
-                            {current && (
-                                <p className="text-muted-foreground text-sm">
-                                    案 #{current.sequence}・{proposalStatusLabel(current.status)}
-                                </p>
-                            )}
-                        </CardHeader>
-                        <CardContent>
-                            <div
-                                className={
-                                    localImageAvailable ? 'grid items-start gap-6 lg:grid-cols-[minmax(16rem,28rem)_minmax(0,1fr)]' : undefined
-                                }
-                            >
-                                {localImageAvailable && (
-                                    <figure className="mx-auto w-full max-w-md">
-                                        <div className="bg-muted aspect-[9/16] overflow-hidden rounded-md border">
-                                            <img
-                                                src={route('wallpapers.preview', { wallpaper: wallpaper.id })}
-                                                alt={`${wallpaper.target_date}の壁紙「${details.title || '構図の詳細'}」のプレビュー`}
-                                                className="size-full object-contain"
-                                            />
-                                        </div>
-                                        <figcaption className="text-muted-foreground mt-2 text-center text-sm">保存済み壁紙のプレビュー</figcaption>
-                                        <Button variant="outline" className="mt-3 w-full" asChild>
-                                            <a href={route('wallpapers.download', { wallpaper: wallpaper.id })}>
-                                                <Download aria-hidden="true" />
-                                                画像をダウンロード
-                                            </a>
-                                        </Button>
-                                    </figure>
-                                )}
-                                <div className="space-y-5">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <h2 className="font-semibold">構図の詳細</h2>
-                                        {compositionDetails !== '' && (
-                                            <ClipboardCopyButton value={compositionDetails} label="構図の詳細" className="-m-2" />
-                                        )}
-                                    </div>
-                                    <Section
-                                        title={!current && details.overview === details.composition ? undefined : '概要'}
-                                        body={details.overview}
-                                    />
-                                    {details.composition !== details.overview && <Section title="配置" body={details.composition} />}
-                                    <Section title="九宮構図" body={compositionZoneLabel} />
-                                    <Section title="色彩・五行" body={details.color_wu_xing} />
-                                    <Section title="象徴意図" body={details.symbolism} />
-
-                                    {canCreateImage && (
-                                        <section className="space-y-4 border-t pt-4">
-                                            <div className="space-y-2">
-                                                <h3 className="font-semibold">画像作成</h3>
-                                                <ExecutionModeSelector value={imageMode} onChange={setImageMode} disabled={Boolean(active)} />
-                                            </div>
-                                            {imageMode === 'manual' ? (
-                                                <>
-                                                    <Button type="button" disabled={Boolean(active) || imagePromptLoading} onClick={loadImagePrompt}>
-                                                        {imagePromptLoading && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-                                                        {imagePromptLoading ? '作成中' : '画像作成プロンプトを作成'}
-                                                    </Button>
-                                                    <InputError message={imagePromptError} />
-                                                    {imagePrompt && <ManualPromptPanel prompt={imagePrompt} title="画像作成プロンプト" />}
-                                                    <form onSubmit={saveImage} className="space-y-3 border-t pt-4">
-                                                        <div className="space-y-2">
-                                                            <Label htmlFor="manual_image">登録する画像</Label>
-                                                            <Input
-                                                                id="manual_image"
-                                                                type="file"
-                                                                accept="image/jpeg,image/png,image/webp"
-                                                                onChange={(event) => imageForm.setData('image', event.target.files?.[0] ?? null)}
-                                                            />
-                                                            <p className="text-muted-foreground text-sm">JPEG・PNG・WebP、最大20MB</p>
-                                                            <InputError message={imageForm.errors.image} />
-                                                        </div>
-                                                        <Button type="submit" disabled={imageForm.processing || imageForm.data.image === null}>
-                                                            {imageForm.processing && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-                                                            {imageForm.processing ? '登録中' : '画像を登録'}
-                                                        </Button>
-                                                    </form>
-                                                </>
-                                            ) : (
-                                                <ApiConfirmationButton
-                                                    label="APIで画像を作成"
-                                                    processingLabel="画像作成中"
-                                                    processing={Boolean(active)}
-                                                    onConfirm={() =>
-                                                        router.post(
-                                                            route('wallpapers.image', { wallpaper: wallpaper.id }),
-                                                            { proposal_id: current?.id, api_confirmed: true },
-                                                            { preserveScroll: true },
-                                                        )
-                                                    }
-                                                />
-                                            )}
-                                        </section>
-                                    )}
-
-                                    <div className="flex flex-wrap gap-3">
-                                        {canRestoreImage && (
-                                            <Button disabled={Boolean(active) || restoring} onClick={restoreImage}>
-                                                {restoring ? (
-                                                    <LoaderCircle className="animate-spin" aria-hidden="true" />
-                                                ) : (
-                                                    <ArchiveRestore aria-hidden="true" />
-                                                )}
-                                                {restoring ? '復元中' : 'Notionから画像を復元'}
-                                            </Button>
-                                        )}
-                                        {!localImageAvailable && downloadAvailable && (
-                                            <Button variant="outline" asChild>
-                                                <a href={route('wallpapers.download', { wallpaper: wallpaper.id })}>
-                                                    <Download aria-hidden="true" />
-                                                    Notionバックアップからダウンロード
-                                                </a>
-                                            </Button>
-                                        )}
-                                    </div>
-                                    <InputError message={restoreError} />
-                                    {downloadUnavailableReason && (
-                                        <Alert variant="warning">
-                                            <AlertTitle>画像をダウンロードできません。</AlertTitle>
-                                            <AlertDescription>{downloadUnavailableReason}</AlertDescription>
-                                        </Alert>
-                                    )}
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
-                )}
-
-                {!localImageAvailable && (
-                    <section className="space-y-4 border-t pt-6">
-                        <div className="space-y-2">
-                            <h2 className="text-lg font-semibold">{details ? '構図を再提案' : '構図提案を再試行'}</h2>
-                            <ExecutionModeSelector value={proposalMode} onChange={setProposalMode} disabled={Boolean(active)} />
-                        </div>
-                        {proposalMode === 'manual' ? (
+                {flash.status && <Alert>{flash.status}</Alert>}
+                <div className="grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+                    <div className="space-y-4">
+                        {downloadAvailable && (
                             <>
-                                <Button type="button" disabled={Boolean(active) || proposalPromptLoading} onClick={loadProposalPrompt}>
-                                    {proposalPromptLoading && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-                                    {proposalPromptLoading ? '作成中' : '構図提案プロンプトを作成'}
+                                <img
+                                    src={route('wallpapers.preview', { wallpaper: wallpaper.id })}
+                                    alt={wallpaper.target_date + 'の壁紙'}
+                                    className="mx-auto aspect-[9/16] w-full max-w-sm rounded-md border object-contain"
+                                />
+                                <Button asChild>
+                                    <a href={route('wallpapers.download', { wallpaper: wallpaper.id })}>
+                                        <Download aria-hidden="true" />
+                                        壁紙をダウンロード
+                                    </a>
                                 </Button>
-                                <InputError message={proposalPromptError} />
-                                {proposalPrompt && (
-                                    <>
-                                        <ManualPromptPanel prompt={proposalPrompt} title="構図提案プロンプト" />
-                                        <form onSubmit={saveProposal} className="space-y-3 border-t pt-4">
-                                            <ManualResultField
-                                                id="proposal_json"
-                                                label="ChatGPTの構図提案JSON"
-                                                value={proposalForm.data.proposal_json}
-                                                onChange={(value) => proposalForm.setData('proposal_json', value)}
-                                                placeholder="ChatGPTから返されたJSONを貼り付けます"
-                                                fileAccept=".json,.txt,application/json,text/plain"
-                                                fileDescription="JSON・テキスト（UTF-8）、最大2,000,000文字"
-                                                maxLength={2_000_000}
-                                                error={proposalForm.errors.proposal_json}
-                                            />
-                                            <Button type="submit" disabled={proposalForm.processing || proposalForm.data.proposal_json.trim() === ''}>
-                                                {proposalForm.processing && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-                                                {proposalForm.processing ? '保存中' : '構図提案を保存'}
-                                            </Button>
-                                        </form>
-                                    </>
-                                )}
                             </>
-                        ) : (
-                            <ApiConfirmationButton
-                                label={details ? 'APIで再提案' : 'APIで構図提案を再試行'}
-                                processingLabel="提案中"
-                                processing={Boolean(active)}
-                                onConfirm={() =>
-                                    router.post(
-                                        route('wallpapers.repropose', { wallpaper: wallpaper.id }),
-                                        { api_confirmed: true },
-                                        { preserveScroll: true },
-                                    )
-                                }
-                            />
                         )}
-                    </section>
-                )}
-
-                {wallpaper.warnings && wallpaper.warnings.length > 0 && (
-                    <Alert role="note" variant="warning">
-                        <AlertTitle>注意事項</AlertTitle>
-                        <AlertDescription className="space-y-1">
-                            {wallpaper.warnings.map((warning) => (
-                                <p key={warning}>{warning}</p>
-                            ))}
-                        </AlertDescription>
-                    </Alert>
-                )}
-                {!active && (
-                    <div className="flex flex-wrap justify-end gap-3 border-t pt-6">
-                        {localImageAvailable && <DeleteWallpaperImageDialog wallpaper={wallpaper} />}
-                        <DeleteWallpaperDialog wallpaper={wallpaper} label="履歴を削除" />
+                        {downloadUnavailableReason && <Alert variant="warning">{downloadUnavailableReason}</Alert>}
+                        <section className="space-y-2 border-t pt-4">
+                            <h2 className="font-semibold">宝くじ実績</h2>
+                            <p>賞金: {wallpaper.prize_vnd === null ? '未登録' : wallpaper.prize_vnd.toLocaleString() + ' VND'}</p>
+                            <p>購入口数: {wallpaper.purchase_count === null ? '未登録' : wallpaper.purchase_count.toLocaleString() + '口'}</p>
+                            <Button asChild variant="outline">
+                                <Link href={route('results.index', { date: wallpaper.target_date })}>実績を登録・編集</Link>
+                            </Button>
+                        </section>
+                    </div>
+                    <div className="min-w-0 space-y-5">
+                        <div className="flex items-center justify-between gap-2">
+                            <h2 className="text-lg font-semibold">構図の説明</h2>
+                            <ClipboardCopyButton value={compositionText} label="構図の説明" />
+                        </div>
+                        <Section title="画風" body={details.art_style} />
+                        <Section title="結論" body={details.conclusion} />
+                        <Section title="概要" body={details.overview} />
+                        <Section title="配置" body={details.composition} />
+                        <Section title="色彩" body={details.color_wu_xing} />
+                        <Section title="象徴意図" body={details.symbolism} />
+                        <KigakuDetails value={kigaku} />
+                    </div>
+                </div>
+                {!localImageAvailable && (
+                    <div className="max-w-4xl space-y-5 border-t pt-5">
+                        {downloadAvailable && (
+                            <>
+                                <Button
+                                    variant="outline"
+                                    disabled={restoring}
+                                    onClick={() =>
+                                        router.post(
+                                            route('wallpapers.image.restore', { wallpaper: wallpaper.id }),
+                                            {},
+                                            {
+                                                preserveScroll: true,
+                                                onStart: () => setRestoring(true),
+                                                onFinish: () => setRestoring(false),
+                                            },
+                                        )
+                                    }
+                                >
+                                    {restoring ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <ArchiveRestore aria-hidden="true" />}
+                                    Notionから画像を復元
+                                </Button>
+                                <InputError message={errors.restoreImage} />
+                            </>
+                        )}
+                        {hasComposition && (
+                            <details className="space-y-3">
+                                <summary className="cursor-pointer font-medium">保存済み構図で画像を作成・登録</summary>
+                                <Button type="button" disabled={loading} onClick={() => void loadImagePrompt()}>
+                                    {loading ? '作成中' : '画像作成プロンプトを取得'}
+                                </Button>
+                                <InputError message={promptError} />
+                                {imagePrompt && <ManualPromptPanel prompt={imagePrompt} title="画像作成プロンプト" />}
+                                <form onSubmit={saveImage} className="space-y-3">
+                                    <Label htmlFor="replacement_image">登録する画像</Label>
+                                    <Input
+                                        id="replacement_image"
+                                        type="file"
+                                        accept="image/jpeg,image/png,image/webp"
+                                        onChange={(event) => imageForm.setData('image', event.target.files?.[0] ?? null)}
+                                    />
+                                    <p className="text-muted-foreground text-sm">JPEG・PNG・WebP、最大20MB</p>
+                                    <InputError message={imageForm.errors.image ?? imageForm.errors.prompt_hash} />
+                                    <Button type="submit" disabled={imageForm.processing || imageForm.data.image === null}>
+                                        画像を登録
+                                    </Button>
+                                </form>
+                            </details>
+                        )}
+                        <details className="space-y-4">
+                            <summary className="cursor-pointer font-medium">新しい構図と壁紙を作成・登録</summary>
+                            <ManualWallpaperForm
+                                key={wallpaper.id + '-' + (wallpaper.chosen_proposal_id ?? '')}
+                                targetDate={wallpaper.target_date}
+                                wallpaperId={wallpaper.id}
+                            />
+                        </details>
                     </div>
                 )}
+                {wallpaper.warnings?.map((warning) => (
+                    <Alert key={warning} variant="warning">
+                        {warning}
+                    </Alert>
+                ))}
+                <div className="flex flex-wrap justify-end gap-3 border-t pt-5">
+                    {localImageAvailable && <DeleteWallpaperImageDialog wallpaper={wallpaper} />}
+                    <DeleteWallpaperDialog wallpaper={wallpaper} label="履歴を削除" />
+                </div>
             </div>
         </AppLayout>
     );
 }
-
-function hasCompositionDetails(wallpaper: Wallpaper): boolean {
-    return [wallpaper.title, wallpaper.conclusion, wallpaper.overview, wallpaper.composition, wallpaper.color_wu_xing, wallpaper.symbolism].some(
-        (value) => value !== null && value.trim() !== '',
-    );
-}
-
-function formatCompositionDetails(details: Proposal | Wallpaper, compositionZoneLabel: string): string {
-    const sections = [
-        details.overview?.trim() ? `${details.overview === details.composition ? '構図の詳細' : '概要'}\n${details.overview.trim()}` : '',
-        details.composition?.trim() && details.composition !== details.overview ? `配置\n${details.composition.trim()}` : '',
-        `九宮構図\n${compositionZoneLabel}`,
-        details.color_wu_xing?.trim() ? `色彩・五行\n${details.color_wu_xing.trim()}` : '',
-        details.symbolism?.trim() ? `象徴意図\n${details.symbolism.trim()}` : '',
-    ];
-
-    return sections.filter((section) => section !== '').join('\n\n');
-}
-
-function Section({ title, body }: { title?: string; body: string | null }) {
-    if (body === null || body.trim() === '') {
-        return null;
-    }
-
-    return (
-        <section>
-            {title && <h3 className="mb-1 font-semibold">{title}</h3>}
-            <p className="text-sm leading-6 whitespace-pre-wrap">{body}</p>
+function Section({ title, body }: { title: string; body: string | null }) {
+    return body ? (
+        <section className="text-sm">
+            <h3 className="font-medium">{title}</h3>
+            <p className="mt-1 break-words whitespace-pre-wrap">{body}</p>
         </section>
-    );
+    ) : null;
 }

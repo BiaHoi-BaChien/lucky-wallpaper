@@ -3,7 +3,6 @@
 namespace App\Jobs;
 
 use App\Exceptions\ExternalApiException;
-use App\Models\AnalysisSnapshot;
 use App\Models\SyncRun;
 use App\Models\Wallpaper;
 use App\Services\NotionClient;
@@ -65,7 +64,6 @@ class ImportNotionPages implements ShouldQueue
                     'state' => 'imported',
                 ]);
                 SyncRun::query()->whereKey($this->runId)->increment('imported');
-                AnalysisSnapshot::query()->where('status', 'succeeded')->update(['status' => 'invalidated']);
             } catch (QueryException) {
                 SyncRun::query()->whereKey($this->runId)->increment('skipped_existing');
             }
