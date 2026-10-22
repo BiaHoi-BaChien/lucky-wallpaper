@@ -8,7 +8,8 @@
         "format:check": "prettier --check resources/",
         "lint": "eslint . --fix",
         "lint:check": "eslint .",
-        "types:check": "tsc --noEmit"
+        "types:check": "tsc --noEmit",
+        "test:frontend": "node --experimental-strip-types --test tests/Frontend/direction-wave.test.mjs"
     },
     "devDependencies": {
         "@eslint/js": "^9.27.0",
