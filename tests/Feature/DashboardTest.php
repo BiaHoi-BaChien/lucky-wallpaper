@@ -22,8 +22,26 @@ class DashboardTest extends TestCase
     {
         $this->actingAs(User::factory()->create())->get('/dashboard')->assertInertia(fn (Assert $page) => $page
             ->component('dashboard')->has('directionStats', 11)
+            ->where('latestWallpaperDate', null)
             ->where('stats.wallpapers', 0)->where('directionStats.0.average_prize', null)
             ->where('directionStats.0.prize_per_ticket', null)->missing('ninePalace'));
+    }
+
+    public function test_latest_wallpaper_shortcut_uses_target_date_even_with_a_registered_result(): void
+    {
+        $latest = Wallpaper::factory()->create([
+            'target_date' => '2026-10-22', 'prize_vnd' => 0, 'created_at' => '2026-10-20 12:00:00',
+        ]);
+        Wallpaper::factory()->create([
+            'target_date' => '2026-10-21', 'created_at' => '2026-10-21 12:00:00',
+        ]);
+
+        $this->actingAs(User::factory()->create())->get('/dashboard')->assertInertia(fn (Assert $page) => $page
+            ->where('latestWallpaperDate', '2026-10-22'));
+
+        $this->get(route('results.index', ['date' => '2026-10-22']))->assertInertia(fn (Assert $page) => $page
+            ->component('results/index')->where('selectedDate', '2026-10-22')
+            ->where('wallpaper.id', $latest->id)->where('wallpaper.prize_vnd', 0));
     }
 
     public function test_counts_only_primary_direction_and_uses_weighted_ticket_totals(): void
@@ -62,27 +80,34 @@ class DashboardTest extends TestCase
             ->where('directionStats.10.prize_total', 3000));
     }
 
-    public function test_period_includes_both_boundaries_and_applies_to_all_totals(): void
+    public function test_dashboard_always_aggregates_all_periods_even_with_legacy_date_parameters(): void
     {
         Fixtures::wallpaper('2026-09-30', attributes: ['prize_vnd' => 99999]);
         Fixtures::wallpaper('2026-10-01', attributes: ['prize_vnd' => 100]);
         Fixtures::wallpaper('2026-10-02', direction: 'east', attributes: ['prize_vnd' => 200]);
         Fixtures::wallpaper('2026-10-03', attributes: ['prize_vnd' => 99999]);
-        $this->actingAs(User::factory()->create())->get('/dashboard?date_from=2026-10-01&date_to=2026-10-02')->assertInertia(fn (Assert $page) => $page
-            ->where('filters.date_from', '2026-10-01')->where('filters.date_to', '2026-10-02')
-            ->where('stats.wallpapers', 2)->where('stats.result_count', 2)->where('stats.total_prize_vnd', 300)
-            ->where('directionStats.0.prize_total', 100)->where('directionStats.2.prize_total', 200));
+        $this->actingAs(User::factory()->create());
+        foreach ([
+            '/dashboard?date_from=2026-10-01&date_to=2026-10-02',
+            '/dashboard?date_from=2026-10-03&date_to=2026-10-01',
+            '/dashboard?date_from=invalid&date_to=invalid',
+        ] as $url) {
+            $this->get($url)->assertInertia(fn (Assert $page) => $page
+                ->missing('filters')->where('latestWallpaperDate', '2026-10-03')
+                ->where('stats.wallpapers', 4)->where('stats.result_count', 4)->where('stats.total_prize_vnd', 200298)
+                ->where('directionStats.0.prize_total', 200098)->where('directionStats.2.prize_total', 200));
+        }
     }
 
-    public function test_invalid_period_and_direction_are_rejected(): void
+    public function test_history_rejects_invalid_period_and_direction(): void
     {
         $this->actingAs(User::factory()->create())
-            ->get('/dashboard?date_from=2026-10-03&date_to=2026-10-01')->assertSessionHasErrors('date_to');
+            ->get('/wallpapers?date_from=2026-10-03&date_to=2026-10-01')->assertSessionHasErrors('date_to');
         $this->get('/wallpapers?direction=invalid')->assertSessionHasErrors('direction');
-        $this->get('/dashboard?date_from=invalid')->assertSessionHasErrors('date_from');
+        $this->get('/wallpapers?date_from=invalid')->assertSessionHasErrors('date_from');
     }
 
-    public function test_history_uses_the_same_groups_and_period_and_keeps_filters_on_pagination(): void
+    public function test_history_filters_by_direction_and_period(): void
     {
         $north = Fixtures::wallpaper('2026-10-01');
         Fixtures::wallpaper('2026-10-02', direction: 'east');
