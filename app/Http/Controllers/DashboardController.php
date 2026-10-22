@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\WallpaperFilterRequest;
 use App\Models\Wallpaper;
 use App\Services\KigakuPolicy;
 use Inertia\Inertia;
@@ -10,9 +9,8 @@ use Inertia\Response;
 
 class DashboardController extends Controller
 {
-    public function __invoke(WallpaperFilterRequest $request): Response
+    public function __invoke(): Response
     {
-        $filters = $request->safe()->only(['date_from', 'date_to']);
         $rows = [];
         foreach (KigakuPolicy::GROUPS as $key => $label) {
             $rows[$key] = [
@@ -20,7 +18,7 @@ class DashboardController extends Controller
                 'prize_total' => 0, 'ticket_result_count' => 0, 'ticket_prize_total' => 0, 'ticket_total' => 0,
             ];
         }
-        $wallpapers = Wallpaper::query()->filtered($filters)->with('chosenProposal')->get();
+        $wallpapers = Wallpaper::query()->with('chosenProposal')->get();
         foreach ($wallpapers as $wallpaper) {
             $key = KigakuPolicy::group($wallpaper->kigaku());
             $rows[$key]['wallpapers']++;
@@ -37,7 +35,7 @@ class DashboardController extends Controller
         }
 
         return Inertia::render('dashboard', [
-            'filters' => $filters,
+            'latestWallpaperDate' => Wallpaper::query()->orderByDesc('target_date')->first(['target_date'])?->target_date->toDateString(),
             'stats' => [
                 'wallpapers' => $wallpapers->count(),
                 'result_count' => $wallpapers->whereNotNull('prize_vnd')->count(),

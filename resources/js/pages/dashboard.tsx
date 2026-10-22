@@ -1,8 +1,7 @@
 import { Button } from '@/components/ui/button';
-import { WallpaperFilters, WallpaperFilterValues } from '@/components/wallpaper-filters';
 import AppLayout from '@/layouts/app-layout';
 import { Head, Link } from '@inertiajs/react';
-import { ArrowRight, ImagePlus } from 'lucide-react';
+import { ArrowRight, ClipboardPen, ImagePlus } from 'lucide-react';
 
 interface DirectionStats {
     key: string;
@@ -15,11 +14,11 @@ interface DirectionStats {
     ticket_result_count: number;
 }
 export default function Dashboard({
-    filters,
+    latestWallpaperDate,
     stats,
     directionStats,
 }: {
-    filters: WallpaperFilterValues;
+    latestWallpaperDate: string | null;
     stats: { wallpapers: number; result_count: number; total_prize_vnd: number };
     directionStats: DirectionStats[];
 }) {
@@ -29,21 +28,33 @@ export default function Dashboard({
             <div className="min-w-0 space-y-6 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <h1 className="text-xl font-semibold">吉方位別の実績</h1>
-                    <Button asChild>
-                        <Link href={route('wallpapers.create')}>
-                            <ImagePlus aria-hidden="true" />
-                            壁紙作成
-                        </Link>
-                    </Button>
+                    <div className="flex flex-wrap gap-3">
+                        {latestWallpaperDate && (
+                            <Button asChild variant="outline">
+                                <Link
+                                    href={route('results.index', { date: latestWallpaperDate })}
+                                    aria-label={`最新の壁紙の実績を登録（${latestWallpaperDate}）`}
+                                >
+                                    <ClipboardPen aria-hidden="true" />
+                                    最新の壁紙の実績を登録
+                                </Link>
+                            </Button>
+                        )}
+                        <Button asChild>
+                            <Link href={route('wallpapers.create')}>
+                                <ImagePlus aria-hidden="true" />
+                                壁紙作成
+                            </Link>
+                        </Button>
+                    </div>
                 </div>
-                <WallpaperFilters key={JSON.stringify(filters)} filters={filters} action={route('dashboard')} />
                 <dl className="grid gap-4 border-y py-4 sm:grid-cols-3">
                     <Stat title="壁紙件数" value={stats.wallpapers.toLocaleString() + '件'} />
                     <Stat title="実績登録件数" value={stats.result_count.toLocaleString() + '件'} />
                     <Stat title="賞金合計" value={formatVnd(stats.total_prize_vnd)} />
                 </dl>
                 <section className="space-y-3" aria-label="主方位ごとの実績">
-                    <p className="text-muted-foreground text-sm">採用済み構図の主方位に1件ずつ集計します。期間は壁紙の対象日で指定します。</p>
+                    <p className="text-muted-foreground text-sm">全期間の壁紙を、採用済み構図の主方位に1件ずつ集計します。</p>
                     <table className="block w-full text-left text-sm lg:table">
                         <thead className="hidden border-b lg:table-header-group">
                             <tr>
@@ -75,7 +86,7 @@ export default function Dashboard({
                                         <Link
                                             className="text-primary inline-flex items-center gap-1 underline underline-offset-4"
                                             aria-label={row.label + 'の壁紙履歴'}
-                                            href={route('wallpapers.index', { ...filters, direction: row.key })}
+                                            href={route('wallpapers.index', { direction: row.key })}
                                         >
                                             履歴を確認
                                             <ArrowRight className="size-4" aria-hidden="true" />
