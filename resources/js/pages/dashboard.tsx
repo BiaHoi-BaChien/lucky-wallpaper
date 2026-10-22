@@ -1,18 +1,10 @@
+import { DirectionWaveChart } from '@/components/direction-wave-chart';
 import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/app-layout';
+import { type DirectionStats } from '@/lib/direction-wave';
 import { Head, Link } from '@inertiajs/react';
 import { ArrowRight, ClipboardPen, ImagePlus } from 'lucide-react';
 
-interface DirectionStats {
-    key: string;
-    label: string;
-    wallpapers: number;
-    result_count: number;
-    prize_total: number;
-    average_prize: number | null;
-    prize_per_ticket: number | null;
-    ticket_result_count: number;
-}
 export default function Dashboard({
     latestWallpaperDate,
     stats,
@@ -53,6 +45,7 @@ export default function Dashboard({
                     <Stat title="実績登録件数" value={stats.result_count.toLocaleString() + '件'} />
                     <Stat title="賞金合計" value={formatVnd(stats.total_prize_vnd)} />
                 </dl>
+                <DirectionWaveChart stats={directionStats} />
                 <section className="space-y-3" aria-label="主方位ごとの実績">
                     <p className="text-muted-foreground text-sm">全期間の壁紙を、採用済み構図の主方位に1件ずつ集計します。</p>
                     <table className="block w-full text-left text-sm lg:table">

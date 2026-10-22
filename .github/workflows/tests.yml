@@ -37,6 +37,9 @@ jobs:
       - name: Build Assets
         run: npm run build
 
+      - name: Test Frontend
+        run: npm run test:frontend
+
       - name: Create SQLite Database
         run: touch database/database.sqlite
 
