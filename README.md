@@ -8,7 +8,7 @@
 
 ## 技術構成
 
-- Laravel 13 / PHP 8.3以上
+- Laravel 13 / PHP 8.5.12以上
 - Inertia 2 / React 19 / TypeScript / Tailwind CSS 4
 - MySQL / DBキュー（Notion連携用）
 - Laravel Passkeys（WebAuthn）
