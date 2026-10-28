@@ -140,6 +140,28 @@ php artisan queue:work database --queue=default,integrations --stop-when-empty -
 
 cron間隔により、UI操作から処理開始まで最大約1分待つ場合があります。
 
+多重起動を防ぐロックは、通常終了時に解除し、異常終了して残った場合も15分で失効します。`--max-time=240`はジョブの合間に判定されるため、最後に開始したバックアップジョブの最大600秒も含めて期限を設定しています。
+
+### バックアップがqueuedから進まない場合
+
+`No scheduled commands are ready to run.`は、キューが空という意味ではありません。残留ロックでスケジュールをスキップした場合にも表示されます。
+
+SSHで配置先へ移動し、スケジュールと実行中プロセスを確認します。
+
+```bash
+cd /home/u685478147/public_html/public_html/lucky_wallpaper
+php artisan schedule:list
+ps -u "$(id -u)" -o pid,etime,args | grep -E '[a]rtisan (queue:work|queue:listen|schedule:run|schedule:work)'
+```
+
+`Has Mutex`があり、このアプリのワーカーとスケジューラーが動いていない場合は、残留ロックを解除します。次のcronで待機中のNotionバックアップが実行されるため、本番操作として承認を得てから実行してください。
+
+```bash
+php artisan schedule:clear-cache
+```
+
+旧設定で作成された24時間のロックは、コード更新だけでは期限が短くなりません。実行中のプロセスがある場合はロックを解除せず、終了を待ってください。ロックがない場合は`storage/logs/laravel.log`と`php artisan queue:failed`でジョブの失敗を確認します。
+
 ## 本番環境変数
 
 - `APP_ENV=production`
