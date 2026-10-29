@@ -31,6 +31,23 @@ class WallpaperWorkflowTest extends TestCase
                 ->where('defaultDate', '2026-07-30'));
     }
 
+    public function test_target_date_changes_at_ict_midnight_while_the_server_is_in_utc(): void
+    {
+        config(['app.timezone' => 'UTC', 'lucky.timezone' => 'Asia/Ho_Chi_Minh']);
+        $previousTimezone = date_default_timezone_get();
+        date_default_timezone_set('UTC');
+        $this->actingAs(User::factory()->create());
+        try {
+            CarbonImmutable::setTestNow('2026-06-18 16:59:59 UTC');
+            $this->get('/wallpapers/create')->assertInertia(fn (AssertableInertia $page) => $page->where('defaultDate', '2026-06-19'));
+            CarbonImmutable::setTestNow('2026-06-18 17:00:00 UTC');
+            $this->get('/wallpapers/create')->assertInertia(fn (AssertableInertia $page) => $page->where('defaultDate', '2026-06-20'));
+        } finally {
+            CarbonImmutable::setTestNow();
+            date_default_timezone_set($previousTimezone);
+        }
+    }
+
     public function test_result_search_defaults_to_today_in_ho_chi_minh(): void
     {
         CarbonImmutable::setTestNow('2026-07-29 23:30:00 Asia/Ho_Chi_Minh');

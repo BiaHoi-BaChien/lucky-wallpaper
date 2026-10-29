@@ -14,11 +14,14 @@ class WallpaperPromptService
 {
     public function composition(string $targetDate, ?Wallpaper $wallpaper = null): array
     {
+        $judgement = app(KigakuDetermination::class)->determine($targetDate);
         $input = [
             'target_date' => $targetDate,
             'personal_star' => KigakuPolicy::PERSONAL_STAR,
             'timezone' => config('lucky.timezone'),
             'direction_labels' => KigakuPolicy::DIRECTIONS,
+            'fixed_kigaku' => $judgement,
+            'star_motif' => KigakuPolicy::MOTIFS[$judgement['direction_star'] ?? 6],
         ];
         if ($wallpaper !== null) {
             $input['previous_same_day_proposals'] = $wallpaper->proposals()->orderBy('sequence')
@@ -30,26 +33,25 @@ class WallpaperPromptService
         $prompt = <<<PROMPT
 あなたは九星気学を基にスマートフォン壁紙を制作するアートディレクターです。
 対象日は{$targetDate}です。本命星は六白金星です。入力のタイムゾーンにおける対象日として判断してください。
-九星気学による吉方位の判定、象意に基づく構図1案、その構図に一致する壁紙画像1枚を同じ回答で作成してください。
+アプリが確定した吉方位と配置を使い、象意に基づく構図1案、その構図に一致する壁紙画像1枚を同じ回答で作成してください。
 途中の構図確認は不要です。画像生成機能を実際に使用し、生成処理の完了まで待ってください。
 
 判定と構図:
-- 吉方位は「日盤＞月盤＞年盤」の優先順位で決定してください。3盤すべてに共通する方位だけに絞る方式は使わないでください。
-- まず日盤の吉方位を探し、日盤に吉方位がないと確認できた場合だけ月盤へ、月盤にもない場合だけ年盤へ進んでください。最初に吉方位が見つかった盤を採用盤とし、その盤の吉方位をcandidate_directionsに記録してください。下位盤だけの吉方位を候補に混ぜないでください。
-- 候補が複数ある場合は、確認できた下位盤を月盤、年盤の順に比較してprimary_directionを選んでください。下位盤で吉にならないことだけを理由に採用盤の吉方位を除外しないでください。比較しても決まらない場合は、象意と構図の対応から1つ選び、理由を説明してください。
-- methodには「日盤＞月盤＞年盤の優先方式」、採用盤、使用した流派・暦の基準・日付の切り替わりを明記してください。reasonには確認した各盤の判定と採用理由、未確認の盤があればその旨を書いてください。月盤や年盤を採用した場合は、上位盤に吉方位がないことを説明してください。
-- 対象日の根拠を確認して本命星との関係から判定し、reasonに具体的な根拠を書いてください。参照資料の一覧や出典名・出典URLは回答・JSONに含めないでください。referencesフィールドも出力しないでください。
-- 吉方位ありはstatus=auspiciousとし、candidate_directionsに候補を列挙し、その中から構図に使うprimary_directionを1つだけ選んで採用理由を説明してください。fallback_reasonはnullです。
-- 3盤すべてで吉方位がないと確認できた場合だけstatus=noneとしてください。採用盤を決めるために必要な上位盤を判定できない場合はstatus=undeterminedとし、未確認を「吉方位なし」と扱って下位盤へ進まないでください。採用盤が決まっている場合は、比較用の下位盤を確認できなくても判定不能にせず、確認できた根拠で主方位を選んでください。
-- noneとundeterminedではcandidate_directions=[]、primary_direction=nullとし、fallback_reasonに理由を書いてください。どちらも六白金星の象意から補完構図を作り、吉方位に基づく構図と偽らないでください。
-- 主方位の象意に因んだ動植物・色・形・素材などを選んで構図を決め、motifsに各モチーフと象意の対応を記録してください。補完時は六白金星との対応を書いてください。
-- 画面上の上下左右を実際の方位と読み替えないでください。過去の当選実績を参照した推奨や当選確率の予測は行わないでください。
+- 入力のfixed_kigakuをJSONのkigakuへそのままコピーし、motifsだけを追記してください。判定・候補順・主方位・回座星・構図位置・理由を変更したり、暦を推測・再判定しないでください。
+- 本方式は壁紙用の独自方式です。六白金星を基準に月命星は使わず、二黒・八白・七赤・一白の回座方位から五黄殺・暗剣殺・本命殺・本命的殺・各盤の破を除外します。8方位で斜めの破は方位全体を除外し、中宮は方位として扱いません。
+- 吉方位は日盤＞月盤＞年盤の順に確認し、最初に候補がある盤だけを採用済みです。3盤共通部分や下位盤の比較は使いません。複数候補は北→北東→東→南東→南→南西→西→北西の固定順で選択済みです。この順は吉の強弱を表しません。
+- status=noneは全盤に候補なし、status=undeterminedは必要な盤を計算できず判定不能です。未確認を「なし」として下位盤へ進みません。両者の配置は中央（左50%、上55%）で六白金星の象意による補完です。
+- 方位は主役の位置、回座星はモチーフ・質感を担当します。star_motifの固定対応表から主役を1つ選び、motifsのmotifには対応表の名称をそのまま使い、meaningに回座星（補完時は六白金星）との対応を書いてください。自然素材と銀白を尊重し、露骨な財宝・金貨・人工的な金色発光を避けてください。
+- 画面上＝北、右＝東の象徴的な配置です。南が上の九星盤とは別の座標です。主役の中心をsubject_positionの左上原点の百分率に置き、compositionに同じ数値を記載してください。北(50,40)、北東(70,40)、東(70,55)、南東(70,70)、南(50,70)、南西(30,70)、西(30,55)、北西(30,40)、方位指定なし(50,55)です。
+- 上部30%は時計用余白。主役1つ・自然光・上昇感を維持してください。配置と動きを分け、南でも下降表現にしません。スマホを実際の地理的な吉方位に向ける指示ではありません。
+- 特定流派への完全準拠や当選への効果を主張しないでください。過去の当選実績を参照した推奨や当選確率の予測は行わないでください。
+- 参照資料の一覧や出典名・出典URLは回答・JSONに含めないでください。referencesフィールドも出力しないでください。
 - previous_same_day_proposalsがある場合は、それらと実質的に異なる構図を考えてください。これは同日の作り直し用であり、過去実績ではありません。
 - title、art_style、overview、composition、color_wu_xingには描画に必要な内容を書き、解釈と採用理由はsymbolismとkigakuにまとめてください。必要なモチーフを説明欄だけに書かないでください。
 - titleとart_styleは各255文字以内、conclusionは「構図名 × 画風」の1行にしてください。
 
 画像と納品:
-- 縦長9:16、推奨1440×2560px。文字、数字、ロゴ、署名、透かしを入れないでください。時計やアイコンが重なる上部と下部は情報量を抑え、主要モチーフは安全領域に配置してください。
+- 縦長9:16、推奨1440×2560px。文字、数字、ロゴ、署名、透かしを入れないでください。上部30%は時計用余白とし、下部も情報量を抑えてください。
 - JSON本文、方位名、鑑定理由、注記は画像に描き込まないでください。構図説明と一致する画像を作成してください。
 - 次のJSON Schemaに一致するJSONオブジェクト本文と、同内容のUTF-8ファイル（wallpaper-composition-{$targetDate}.json）を提供してください。JSON内部に説明文やダウンロードリンクを混ぜないでください。
 - 画像をチャット内にプレビュー表示し、表示したものと同じ実画像をPNG（wallpaper-{$targetDate}.png）またはJPEG（wallpaper-{$targetDate}.jpg）として添付・ダウンロード可能にしてください。JSONと画像は別ファイルです。
@@ -79,6 +81,14 @@ PROMPT;
     public function image(Wallpaper $wallpaper, ?CompositionProposal $proposal = null): array
     {
         $details = $proposal ?? $wallpaper;
+        $kigaku = $proposal === null ? $wallpaper->kigaku() : ($proposal->calendar_context['kigaku'] ?? null);
+        $fixedPlacement = '';
+        if (($kigaku['policy_version'] ?? null) === KigakuPolicy::VERSION) {
+            $position = $kigaku['subject_position'];
+            $fixedPlacement = '保存済みの主方位: '.(KigakuPolicy::DIRECTIONS[$kigaku['primary_direction'] ?? ''] ?? '指定なし')
+                .'。回座星: '.(KigakuPolicy::STARS[$kigaku['direction_star'] ?? 0] ?? 'なし（六白金星で補完）')
+                .'。保存済みの主役中心: 左から'.$position['x_percent'].'%、上から'.$position['y_percent'].'%。画面上＝北、右＝東の象徴的な配置。上部30%は時計用余白。主役1つ、自然光、上昇感。南でも下降させない。露骨な財宝・人工的な金色発光を避ける。';
+        }
         $symbolism = $this->imageSymbolism($details->symbolism);
         $prompt = implode("\n\n", [
             'スマートフォン用の縦長壁紙を1枚制作してください。縦横比9:16、推奨1440×2560px。画像内には文字、数字、ロゴ、署名、透かしを一切入れないでください。',
@@ -86,6 +96,7 @@ PROMPT;
             '画風: '.$details->art_style,
             '概要: '.$details->overview,
             '配置: '.$details->composition,
+            ...($fixedPlacement === '' ? [] : [$fixedPlacement]),
             '色彩: '.$details->color_wu_xing,
             ...($symbolism === '' ? [] : ['補足描写: '.$symbolism]),
             '視認性: ロック画面の時計やアイコンが重なる上部と下部は情報量を抑え、主要モチーフは安全領域に配置する。',
@@ -163,6 +174,22 @@ PROMPT;
         }
         $result = $validator->validated();
         $kigaku = $result['kigaku'];
+        $expected = app(KigakuDetermination::class)->determine($targetDate);
+        foreach ($expected as $field => $value) {
+            $actual = $kigaku[$field];
+            if ($field === 'subject_position') {
+                $actual = ['x_percent' => $actual['x_percent'], 'y_percent' => $actual['y_percent']];
+            }
+            if ($actual !== $value) {
+                throw ValidationException::withMessages(['proposal_json' => '吉方位の判定・配置がアプリの固定方式と一致しません。最新のプロンプトのfixed_kigakuをそのまま使用してください。']);
+            }
+        }
+        $allowedMotifs = KigakuPolicy::MOTIFS[$expected['direction_star'] ?? 6]['motifs'];
+        foreach ($kigaku['motifs'] as $motif) {
+            if (! in_array($motif['motif'], $allowedMotifs, true)) {
+                throw ValidationException::withMessages(['proposal_json' => 'モチーフは採用した回座星の固定対応表から選んでください。']);
+            }
+        }
         if ($kigaku['status'] === 'auspicious') {
             if ($kigaku['primary_direction'] === null
                 || ! in_array($kigaku['primary_direction'], $kigaku['candidate_directions'], true)

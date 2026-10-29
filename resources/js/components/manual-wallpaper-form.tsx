@@ -68,7 +68,8 @@ export function ManualWallpaperForm({ targetDate, wallpaperId }: { targetDate: s
     return (
         <section className="space-y-4">
             <p className="text-muted-foreground text-sm">
-                {targetDate}・本命星は六白金星。プロンプトを外部AIへ渡し、吉方位の判定・構図JSON・壁紙画像をまとめて作成してもらいます。
+                {targetDate}
+                ・本命星は六白金星。アプリが確定した吉方位と主役位置を含むプロンプトを外部AIへ渡し、構図JSONと壁紙画像を作成してもらいます。
             </p>
             <Button type="button" disabled={busy} onClick={() => void load()}>
                 {loading ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <ImagePlus aria-hidden="true" />}
