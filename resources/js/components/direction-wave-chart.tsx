@@ -7,6 +7,7 @@ const HEIGHT = 480;
 const CENTER_X = WIDTH / 2;
 const CENTER_Y = 240;
 const WAVE_HEIGHT = 52;
+const RING_SPACING = 60;
 
 function project(angle: number, radius: number, height = 0) {
     return { x: CENTER_X + Math.sin(angle) * radius, y: CENTER_Y - Math.cos(angle) * radius * 0.5 - height };
@@ -35,8 +36,8 @@ function waveSegment(index: number, radius: number, from: number, to: number) {
     };
 }
 
-function formatValue(value: number | null, unit: string) {
-    return value === null ? '未登録' : `${value.toLocaleString('ja-JP')} ${unit}`;
+function formatValue(value: number, unit: string) {
+    return `${value.toLocaleString('ja-JP')} ${unit}`;
 }
 
 export function DirectionWaveChart({ stats }: { stats: DirectionStats[] }) {
@@ -48,16 +49,15 @@ export function DirectionWaveChart({ stats }: { stats: DirectionStats[] }) {
             DIRECTIONS.findIndex((direction) => stats.some((row) => row.key === direction.key && row.wallpapers > 0)),
         ),
     );
-    const hasData = waves[0].values.some((value) => value !== null && value > 0);
     const selectedAngle = (selected * Math.PI) / 4;
     const selectedEnd = project(selectedAngle, 280);
     const segments = waves
         .flatMap((wave, ring) =>
-            DIRECTIONS.flatMap((_, index) => {
-                const from = wave.normalized[index];
-                const to = wave.normalized[(index + 1) % DIRECTIONS.length];
-                return from === null || to === null ? [] : [{ ...waveSegment(index, 80 + ring * 44, from, to), wave, index }];
-            }),
+            DIRECTIONS.map((_, index) => ({
+                ...waveSegment(index, 80 + ring * RING_SPACING, wave.normalized[index], wave.normalized[(index + 1) % DIRECTIONS.length]),
+                wave,
+                index,
+            })),
         )
         .sort((a, b) => a.depth - b.depth);
 
@@ -67,7 +67,7 @@ export function DirectionWaveChart({ stats }: { stats: DirectionStats[] }) {
                 <h2 id={`${id}-heading`} className="font-semibold">
                     八方位のウェーブ
                 </h2>
-                <span className="text-muted-foreground text-xs">全期間 · 8方位 × 5指標</span>
+                <span className="text-muted-foreground text-xs">全期間 · 8方位 × {waves.length}指標</span>
             </div>
             <div className="grid min-w-0 items-center gap-4 xl:grid-cols-[minmax(0,1fr)_17rem] xl:gap-8">
                 <div className="relative min-w-0">
@@ -77,9 +77,9 @@ export function DirectionWaveChart({ stats }: { stats: DirectionStats[] }) {
                         role="img"
                         aria-labelledby={`${id}-title ${id}-description`}
                     >
-                        <title id={`${id}-title`}>8方位・5指標の円形ウェーブグラフ</title>
+                        <title id={`${id}-title`}>8方位・{waves.length}指標の円形ウェーブグラフ</title>
                         <desc id={`${id}-description`}>
-                            北を奥、南を手前にした俯瞰図。内側から壁紙件数、実績登録件数、賞金合計、1日平均賞金、1口あたり賞金。高さは各指標の8方位内の最大値に対する割合です。方位ボタンで実数を確認できます。未登録の金額は線をつなぎません。
+                            北を奥、南を手前にした俯瞰図。内側から実績登録件数、賞金合計、1日平均賞金、1口あたり賞金。高さは各指標の8方位内の最大値に対する割合です。方位ボタンで実数を確認できます。未登録の金額は0として表示します。
                         </desc>
                         <defs>
                             <filter id={`${id}-glow`} x="-30%" y="-50%" width="160%" height="200%">
@@ -89,7 +89,13 @@ export function DirectionWaveChart({ stats }: { stats: DirectionStats[] }) {
                         <ellipse cx={CENTER_X} cy={CENTER_Y} rx="280" ry="140" fill="var(--muted)" fillOpacity="0.35" />
                         <g fill="none" stroke="var(--muted-foreground)" strokeOpacity="0.2" strokeWidth="1">
                             {waves.map((wave, index) => (
-                                <ellipse key={wave.key} cx={CENTER_X} cy={CENTER_Y} rx={80 + index * 44} ry={(80 + index * 44) * 0.5} />
+                                <ellipse
+                                    key={wave.key}
+                                    cx={CENTER_X}
+                                    cy={CENTER_Y}
+                                    rx={80 + index * RING_SPACING}
+                                    ry={(80 + index * RING_SPACING) * 0.5}
+                                />
                             ))}
                             {DIRECTIONS.map((direction, index) => {
                                 const start = project((index * Math.PI) / 4, 54);
@@ -127,8 +133,7 @@ export function DirectionWaveChart({ stats }: { stats: DirectionStats[] }) {
                         ))}
                         {waves.flatMap((wave, ring) =>
                             wave.normalized.map((value, index) => {
-                                if (value === null) return [];
-                                const point = project((index * Math.PI) / 4, 80 + ring * 44, value * WAVE_HEIGHT);
+                                const point = project((index * Math.PI) / 4, 80 + ring * RING_SPACING, value * WAVE_HEIGHT);
                                 return (
                                     <circle
                                         key={`${wave.key}-${index}`}
@@ -193,9 +198,8 @@ export function DirectionWaveChart({ stats }: { stats: DirectionStats[] }) {
                     </dl>
                 </div>
             </div>
-            {!hasData && <p className="text-muted-foreground text-sm">方位が登録された壁紙がまだありません。登録後に波形が表示されます。</p>}
             <p className="text-muted-foreground text-xs leading-relaxed">
-                方位を選ぶと実数を表示します。波の高さは指標ごとに最大値を100%とした相対値で、指標間の金額・件数の比較には使いません。未登録の金額は点と線を表示しません。吉方位なし・判定不能・方位情報なしは下の表で確認できます。
+                方位を選ぶと実数を表示します。波の高さは指標ごとに最大値を100%とした相対値で、指標間の金額・件数の比較には使いません。未登録の金額は0として表示します。吉方位なし・判定不能・方位情報なしは下の表で確認できます。
             </p>
         </section>
     );

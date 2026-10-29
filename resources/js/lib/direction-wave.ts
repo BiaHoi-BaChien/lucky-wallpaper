@@ -21,7 +21,6 @@ export const DIRECTIONS = [
 ] as const;
 
 const METRICS = [
-    { key: 'wallpapers', label: '壁紙件数', unit: '件', color: 'var(--chart-1)' },
     { key: 'result_count', label: '実績登録件数', unit: '件', color: 'var(--chart-2)' },
     { key: 'prize_total', label: '賞金合計', unit: 'VND', color: 'var(--chart-3)' },
     { key: 'average_prize', label: '1日平均賞金', unit: 'VND', color: 'var(--chart-4)' },
@@ -32,25 +31,13 @@ export function buildDirectionWaves(stats: DirectionStats[]) {
     const rows = new Map(stats.map((row) => [row.key, row]));
 
     return METRICS.map((metric) => {
-        const values = DIRECTIONS.map(({ key }) => {
-            const row = rows.get(key);
-
-            if (metric.key === 'wallpapers' || metric.key === 'result_count') {
-                return row?.[metric.key] ?? 0;
-            }
-
-            if (!row || (metric.key === 'prize_total' && row.result_count === 0)) {
-                return null;
-            }
-
-            return row[metric.key];
-        });
-        const maximum = Math.max(0, ...values.map((value) => value ?? 0));
+        const values = DIRECTIONS.map(({ key }) => rows.get(key)?.[metric.key] ?? 0);
+        const maximum = Math.max(0, ...values);
 
         return {
             ...metric,
             values,
-            normalized: values.map((value) => (value === null ? null : maximum === 0 ? 0 : value / maximum)),
+            normalized: values.map((value) => (maximum === 0 ? 0 : value / maximum)),
             maximum,
         };
     });
