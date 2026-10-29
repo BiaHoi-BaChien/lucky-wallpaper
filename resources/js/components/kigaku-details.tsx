@@ -9,7 +9,23 @@ const directions: Record<string, string> = {
     northwest: '北西',
 };
 const statuses = { auspicious: '吉方位あり', none: '吉方位なし', undetermined: '判定不能' };
+const boards: Record<string, string> = { day: '日盤', month: '月盤', year: '年盤' };
+const stars: Record<number, string> = {
+    1: '一白水星',
+    2: '二黒土星',
+    3: '三碧木星',
+    4: '四緑木星',
+    5: '五黄土星',
+    6: '六白金星',
+    7: '七赤金星',
+    8: '八白土星',
+    9: '九紫火星',
+};
 export interface Kigaku {
+    policy_version?: string;
+    selected_board?: string | null;
+    direction_star?: number | null;
+    subject_position?: { x_percent: number; y_percent: number };
     target_date: string;
     personal_star: string;
     timezone: string;
@@ -37,6 +53,16 @@ export function KigakuDetails({ value }: { value: Kigaku | null }) {
                         {value.target_date}・{value.personal_star}・{value.timezone}
                     </p>
                     <dl className="space-y-3 text-sm">
+                        {value.policy_version && (
+                            <>
+                                <Entry title="方式の版" body={value.policy_version} />
+                                <Entry title="採用盤" body={boards[value.selected_board ?? ''] ?? 'なし'} />
+                                <Entry title="回座星" body={stars[value.direction_star ?? 0] ?? 'なし（六白金星で補完）'} />
+                            </>
+                        )}
+                        {value.subject_position && (
+                            <Entry title="主役中心" body={`左から${value.subject_position.x_percent}%、上から${value.subject_position.y_percent}%`} />
+                        )}
                         <Entry title="採用方式" body={value.method} />
                         <Entry title="候補方位" body={value.candidate_directions.map((d) => directions[d]).join('、') || 'なし'} />
                         <Entry title="判断根拠" body={value.reason} />

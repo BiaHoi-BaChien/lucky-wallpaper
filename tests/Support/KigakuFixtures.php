@@ -3,10 +3,24 @@
 namespace Tests\Support;
 
 use App\Models\Wallpaper;
+use App\Services\KigakuDetermination;
 use App\Services\KigakuPolicy;
 
 class KigakuFixtures
 {
+    public static function currentPayload(string $date = '2026-10-22'): array
+    {
+        $payload = self::payload($date);
+        $kigaku = app(KigakuDetermination::class)->determine($date);
+        $star = $kigaku['direction_star'] ?? 6;
+        $payload['kigaku'] = [...$kigaku, 'motifs' => [[
+            'motif' => KigakuPolicy::MOTIFS[$star]['motifs'][0], 'meaning' => KigakuPolicy::STARS[$star].'の象意。',
+        ]]];
+        $payload['composition'] = '主役中心は左'.$kigaku['subject_position']['x_percent'].'%、上'.$kigaku['subject_position']['y_percent'].'%。';
+
+        return $payload;
+    }
+
     public static function payload(string $date = '2026-10-22', string $status = 'auspicious', string $direction = 'north'): array
     {
         return [

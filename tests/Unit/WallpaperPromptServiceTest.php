@@ -2,13 +2,56 @@
 
 namespace Tests\Unit;
 
+use App\Models\CompositionProposal;
 use App\Models\Wallpaper;
+use App\Services\KigakuCalendar;
+use App\Services\KigakuPolicy;
 use App\Services\WallpaperPromptService;
+use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class WallpaperPromptServiceTest extends TestCase
 {
+    #[DataProvider('savedPositions')]
+    public function test_image_regeneration_uses_saved_direction_and_coordinates_without_recalculating(
+        ?string $direction, string $label, int $x, int $y,
+    ): void {
+        $calendar = Mockery::mock(KigakuCalendar::class);
+        $calendar->shouldNotReceive('board');
+        $this->app->instance(KigakuCalendar::class, $calendar);
+        $kigaku = [
+            'policy_version' => KigakuPolicy::VERSION,
+            'primary_direction' => $direction, 'direction_star' => $direction === null ? null : 7,
+            'subject_position' => ['x_percent' => $x, 'y_percent' => $y],
+        ];
+        $proposal = new CompositionProposal([
+            'wallpaper_id' => 42, 'status' => 'approved', 'title' => '白い花', 'art_style' => '実写写真',
+            'overview' => '朝の花。', 'composition' => '主役を配置する。', 'color_wu_xing' => '銀白。', 'symbolism' => '',
+            'calendar_context' => ['policy_version' => KigakuPolicy::VERSION, 'kigaku' => $kigaku],
+        ]);
+        $wallpaper = new Wallpaper(['id' => 42, 'target_date' => '2026-10-22', ...$proposal->only(KigakuPolicy::COMPOSITION_FIELDS)]);
+        $wallpaper->setRelation('chosenProposal', $proposal);
+        $service = app(WallpaperPromptService::class);
+        foreach ([null, $proposal] as $selected) {
+            $prompt = $service->image($wallpaper, $selected)['prompt'];
+            $this->assertStringContainsString('保存済みの主方位: '.$label, $prompt);
+            $this->assertStringContainsString('回座星: '.($direction === null ? 'なし（六白金星で補完）' : '七赤金星'), $prompt);
+            $this->assertStringContainsString('左から'.$x.'%、上から'.$y.'%', $prompt);
+            $this->assertStringContainsString('上部30%', $prompt);
+        }
+        $this->assertSame($kigaku, $proposal->calendar_context['kigaku']);
+    }
+
+    public static function savedPositions(): array
+    {
+        return [
+            ['north', '北', 50, 40], ['northeast', '北東', 70, 40], ['east', '東', 70, 55], ['southeast', '南東', 70, 70],
+            ['south', '南', 50, 70], ['southwest', '南西', 30, 70], ['west', '西', 30, 55], ['northwest', '北西', 30, 40],
+            [null, '指定なし', 50, 55],
+        ];
+    }
+
     #[DataProvider('legacySymbolism')]
     public function test_image_prompt_preserves_legacy_visual_instructions(
         ?string $symbolism,
