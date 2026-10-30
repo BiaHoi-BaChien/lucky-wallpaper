@@ -144,6 +144,14 @@ export default function ShowWallpaper({
                             </>
                         )}
                         {downloadUnavailableReason && <Alert variant="warning">{downloadUnavailableReason}</Alert>}
+                        {kigaku?.policy_version === 'lucky-wallpaper-v1' && (
+                            <Button asChild variant="outline">
+                                <a href={route('wallpapers.composition.download', { wallpaper: wallpaper.id })}>
+                                    <Download aria-hidden="true" />
+                                    説明JSONをダウンロード
+                                </a>
+                            </Button>
+                        )}
                         <section className="space-y-2 border-t pt-4">
                             <h2 className="font-semibold">宝くじ実績</h2>
                             <p>賞金: {wallpaper.prize_vnd === null ? '未登録' : wallpaper.prize_vnd.toLocaleString() + ' VND'}</p>

@@ -12,7 +12,7 @@ use JsonException;
 
 class WallpaperPromptService
 {
-    public function composition(string $targetDate, ?Wallpaper $wallpaper = null): array
+    public function composition(string $targetDate, ?Wallpaper $wallpaper = null, bool $jsonOnly = false): array
     {
         $judgement = app(KigakuDetermination::class)->determine($targetDate);
         $input = [
@@ -30,11 +30,31 @@ class WallpaperPromptService
         $prettyInput = json_encode($input, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
         $schema = json_encode(KigakuPolicy::schema(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
         $version = KigakuPolicy::VERSION;
+        $task = $jsonOnly
+            ? 'アプリが確定した吉方位と配置を使い、象意に基づく構図1案をJSONオブジェクトのみで返してください。画像生成・ファイル作成・リンクの出力は不要です。画像はアプリがこのJSONから別途生成します。'
+            : <<<'TASK'
+アプリが確定した吉方位と配置を使い、象意に基づく構図1案、その構図に一致する壁紙画像1枚を同じ回答で作成してください。
+必須の納品物は「構図の説明JSONファイル」と「壁紙画像ファイル」の2つです。両方をこのチャットから個別にダウンロードできる状態で返してください。画像だけを返して回答を終了しないでください。
+途中の構図確認は不要です。画像生成機能を実際に使用し、生成処理の完了まで待ってください。
+TASK;
+        $delivery = $jsonOnly ? '' : <<<DELIVERY
+必須の納品手順（順番どおりに実行）:
+1. まず、次のJSON Schemaに一致する構図の説明JSONオブジェクトを作成してください。コード実行などのファイル作成機能を使い、UTF-8の実ファイル wallpaper-composition-{$targetDate}.json として保存してください。ファイルの中身はJSONオブジェクトのみとし、コードフェンス、説明文、ダウンロードリンクを混ぜないでください。
+2. 保存したJSONファイルを再読込し、有効なJSONであることと、Schema・入力のfixed_kigakuに一致することを確認してから画像生成に進んでください。
+3. そのJSONの構図に一致する画像を生成し、PNG（wallpaper-{$targetDate}.png）またはJPEG（wallpaper-{$targetDate}.jpg）の実ファイルとして保存してください。JSONと画像は別ファイルです。
+4. 画像生成が終わったら、JSON・画像の両方の生成成功と添付・参照先をツール結果で確認してください。片方が欠けていれば、未作成のファイルを作成し、作成済みのファイルは再添付・再表示してください。
+5. 最終回答には、次の2つのダウンロードリンクと画像プレビューを必ず含めてください。参照先には、実際に作成・確認したファイルの参照先を使い、コードフェンスの外に表示してください。
+   - [構図の説明JSONをダウンロード](JSON実ファイルの参照先)
+   - [壁紙画像をダウンロード](画像実ファイルの参照先)
+   - ![壁紙プレビュー](同じ画像実ファイルの参照先)
+- 画像の参照先を直接取得できない場合は、画像生成機能の標準の画像表示と保存・ダウンロード操作を利用できる形で提示し、JSONファイルのダウンロードリンクも同じ回答に必ず表示してください。
+- JSON本文をチャットに表示するだけ、ファイル名だけを書く、「保存できます」と案内するだけでは納品完了ではありません。JSONファイルと画像ファイルの両方をダウンロードできることを完了条件にしてください。
+- 画像生成やファイル提供ができない場合は、できなかった内容と理由を明記してください。未作成のファイルへのリンクや架空のURLを出さないでください。
+DELIVERY;
         $prompt = <<<PROMPT
 あなたは九星気学を基にスマートフォン壁紙を制作するアートディレクターです。
 対象日は{$targetDate}です。本命星は六白金星です。入力のタイムゾーンにおける対象日として判断してください。
-アプリが確定した吉方位と配置を使い、象意に基づく構図1案、その構図に一致する壁紙画像1枚を同じ回答で作成してください。
-途中の構図確認は不要です。画像生成機能を実際に使用し、生成処理の完了まで待ってください。
+{$task}
 
 判定と構図:
 - 入力のfixed_kigakuをJSONのkigakuへそのままコピーし、motifsだけを追記してください。判定・候補順・主方位・回座星・構図位置・理由を変更したり、暦を推測・再判定しないでください。
@@ -50,15 +70,11 @@ class WallpaperPromptService
 - title、art_style、overview、composition、color_wu_xingには描画に必要な内容を書き、解釈と採用理由はsymbolismとkigakuにまとめてください。必要なモチーフを説明欄だけに書かないでください。
 - titleとart_styleは各255文字以内、conclusionは「構図名 × 画風」の1行にしてください。
 
-画像と納品:
+画像:
 - 縦長9:16、推奨1440×2560px。文字、数字、ロゴ、署名、透かしを入れないでください。上部30%は時計用余白とし、下部も情報量を抑えてください。
 - JSON本文、方位名、鑑定理由、注記は画像に描き込まないでください。構図説明と一致する画像を作成してください。
-- 次のJSON Schemaに一致するJSONオブジェクト本文と、同内容のUTF-8ファイル（wallpaper-composition-{$targetDate}.json）を提供してください。JSON内部に説明文やダウンロードリンクを混ぜないでください。
-- 画像をチャット内にプレビュー表示し、表示したものと同じ実画像をPNG（wallpaper-{$targetDate}.png）またはJPEG（wallpaper-{$targetDate}.jpg）として添付・ダウンロード可能にしてください。JSONと画像は別ファイルです。
-- 実ファイルを参照できる場合は、![壁紙プレビュー](実画像のURL) と [壁紙画像をダウンロード](同じ実画像のURL) をコードフェンスの外に表示してください。
-- 直接参照できない場合は、画像生成機能の標準の画像表示と保存・ダウンロード操作を利用できる形で提示してください。
-- 完了前に、JSON・画像の両方の生成成功と添付・参照先をツール結果で確認してください。生成済み画像の提示が欠けている場合は再添付・再表示してください。
-- 画像生成やファイル提供ができない場合は、できなかった内容と理由を明記してください。未作成のファイルへのリンクや架空のURLを出さないでください。
+
+{$delivery}
 
 仕様バージョン: {$version}
 JSON Schema:
@@ -78,7 +94,7 @@ PROMPT;
         ];
     }
 
-    public function image(Wallpaper $wallpaper, ?CompositionProposal $proposal = null): array
+    public function image(Wallpaper $wallpaper, ?CompositionProposal $proposal = null, bool $imageOnly = false): array
     {
         $details = $proposal ?? $wallpaper;
         $kigaku = $proposal === null ? $wallpaper->kigaku() : ($proposal->calendar_context['kigaku'] ?? null);
@@ -100,7 +116,8 @@ PROMPT;
             '色彩: '.$details->color_wu_xing,
             ...($symbolism === '' ? [] : ['補足描写: '.$symbolism]),
             '視認性: ロック画面の時計やアイコンが重なる上部と下部は情報量を抑え、主要モチーフは安全領域に配置する。',
-            '保存済み構図に一致する画像を作成してください。画像生成を実行し、生成した実画像をプレビュー表示して、同じPNGまたはJPEGをダウンロードできるよう提供してください。',
+            $imageOnly ? '構図に一致する壁紙画像を作成してください。'
+                : '保存済み構図に一致する画像を作成してください。画像生成を実行し、生成した実画像をプレビュー表示して、同じPNGまたはJPEGをダウンロードできるよう提供してください。',
         ]);
 
         return [

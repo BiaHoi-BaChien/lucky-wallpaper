@@ -3,11 +3,22 @@ import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useForm } from '@inertiajs/react';
-import { ImagePlus, LoaderCircle } from 'lucide-react';
+import { Operation, useOperation } from '@/hooks/use-operation';
+import { router, useForm } from '@inertiajs/react';
+import { ImagePlus, LoaderCircle, Sparkles } from 'lucide-react';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 
-export function ManualWallpaperForm({ targetDate, wallpaperId }: { targetDate: string; wallpaperId?: number }) {
+export function ManualWallpaperForm({
+    targetDate,
+    wallpaperId,
+    apiConfigured = false,
+    apiGeneration,
+}: {
+    targetDate: string;
+    wallpaperId?: number;
+    apiConfigured?: boolean;
+    apiGeneration?: Operation | null;
+}) {
     const form = useForm<{ target_date: string; proposal_json: string; prompt_hash: string; image: File | null }>({
         target_date: targetDate,
         proposal_json: '',
@@ -18,8 +29,16 @@ export function ManualWallpaperForm({ targetDate, wallpaperId }: { targetDate: s
     const [loading, setLoading] = useState(false);
     const [promptError, setPromptError] = useState<string>();
     const [preview, setPreview] = useState<string>();
+    const generationForm = useForm({ target_date: targetDate });
+    const { operation } = useOperation(apiGeneration, false);
+    const generating = operation?.status === 'queued' || operation?.status === 'running';
     const controller = useRef<AbortController | null>(null);
-    const busy = loading || form.processing;
+    const busy = loading || form.processing || generationForm.processing || generating;
+    useEffect(() => {
+        if (operation?.status === 'succeeded' && operation.wallpaper_id) {
+            router.visit(route('wallpapers.show', { wallpaper: operation.wallpaper_id }));
+        }
+    }, [operation]);
     useEffect(() => () => controller.current?.abort(), []);
     useEffect(() => {
         if (!form.data.image) {
@@ -69,12 +88,44 @@ export function ManualWallpaperForm({ targetDate, wallpaperId }: { targetDate: s
         <section className="space-y-4">
             <p className="text-muted-foreground text-sm">
                 {targetDate}
-                ・本命星は六白金星。アプリが確定した吉方位と主役位置を含むプロンプトを外部AIへ渡し、構図JSONと壁紙画像を作成してもらいます。
+                ・本命星は六白金星。アプリが確定した吉方位と主役位置を使い、構図JSONと壁紙画像を手動またはAPIで作成します。
             </p>
-            <Button type="button" disabled={busy} onClick={() => void load()}>
-                {loading ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <ImagePlus aria-hidden="true" />}
-                {loading ? '作成中' : '壁紙作成プロンプトを作成'}
-            </Button>
+            <div className="flex flex-wrap gap-3">
+                <Button type="button" disabled={busy} onClick={() => void load()}>
+                    {loading ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <ImagePlus aria-hidden="true" />}
+                    {loading ? '作成中' : '壁紙作成プロンプトを作成'}
+                </Button>
+                {wallpaperId === undefined && (
+                    <Button
+                        type="button"
+                        variant="outline"
+                        disabled={busy || !apiConfigured}
+                        onClick={() => generationForm.post(route('wallpapers.generate'), { preserveScroll: true })}
+                    >
+                        {generating || generationForm.processing ? (
+                            <LoaderCircle className="animate-spin" aria-hidden="true" />
+                        ) : (
+                            <Sparkles aria-hidden="true" />
+                        )}
+                        {generating || generationForm.processing ? 'APIで作成中' : 'API経由で自動作成'}
+                    </Button>
+                )}
+            </div>
+            {wallpaperId === undefined && (
+                <p className="text-muted-foreground text-sm">
+                    {apiConfigured
+                        ? '自動作成はAPI利用料が発生します。構図と画像を自動保存し、完了後に詳細を表示します。'
+                        : 'API連携が未設定です。サーバーのOpenAI APIキーを設定すると自動作成できます。'}
+                </p>
+            )}
+            {generating && (
+                <p className="text-muted-foreground text-sm" role="status">
+                    {operation.status === 'queued' ? '自動作成の開始を待っています。' : '構図JSONと壁紙画像を作成しています。'}
+                    数分かかる場合があります。ページを閉じても処理は続きます。
+                </p>
+            )}
+            <InputError message={(generationForm.errors as Record<string, string>).api_generation ?? generationForm.errors.target_date} />
+            {operation?.status === 'failed' && <InputError message={generationError(operation.error_code)} />}
             <InputError message={promptError ?? form.errors.target_date} />
             {prompt && <ManualPromptPanel prompt={prompt} title="壁紙作成プロンプト" />}
             {(wallpaperId === undefined || prompt) && (
@@ -132,4 +183,18 @@ export function ManualWallpaperForm({ targetDate, wallpaperId }: { targetDate: s
             )}
         </section>
     );
+}
+
+function generationError(code?: string | null): string {
+    const reasons: Record<string, string> = {
+        openai_auth_failed: 'APIキーまたはモデルの利用権限を確認してください。',
+        openai_not_configured: 'サーバーのOpenAI APIキーを設定してください。',
+        openai_rate_limited: 'APIの利用上限・残高を確認し、時間を置いて再実行してください。',
+        openai_connection_failed: 'APIとの通信が完了しませんでした。',
+        openai_refused: 'APIが生成を受け付けませんでした。',
+        openai_invalid_composition: '説明JSONがアプリの判定・構図の条件を満たしませんでした。',
+        composition_prompt_stale: '作成条件が更新されました。ページを再読み込みしてください。',
+        wallpaper_already_exists: 'この日付の壁紙は登録済みです。ページを再読み込みしてください。',
+    };
+    return '自動作成に失敗しました。' + (reasons[code ?? ''] ?? 'API設定とキューワーカーの稼働状態を確認してください。');
 }

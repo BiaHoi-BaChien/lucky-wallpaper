@@ -14,9 +14,10 @@ export interface Operation {
     error_code?: string | null;
     retryable?: boolean;
     warnings?: string[] | null;
+    wallpaper_id?: number | null;
 }
 
-export function useOperation(initial?: Operation | null) {
+export function useOperation(initial?: Operation | null, reloadOnFinish = true) {
     const [operation, setOperation] = useState<Operation | null>(initial ?? null);
     const operationId = operation?.id;
     const operationStatus = operation?.status;
@@ -33,23 +34,27 @@ export function useOperation(initial?: Operation | null) {
         }
 
         const timer = window.setInterval(async () => {
-            const response = await fetch(route('operations.show', { id: operationId }), {
-                credentials: 'same-origin',
-                headers: { Accept: 'application/json' },
-            });
-            if (!response.ok) {
-                return;
-            }
-            const next = (await response.json()) as Operation;
-            setOperation(next);
-            if (['succeeded', 'failed'].includes(next.status)) {
-                window.clearInterval(timer);
-                router.reload();
+            try {
+                const response = await fetch(route('operations.show', { id: operationId }), {
+                    credentials: 'same-origin',
+                    headers: { Accept: 'application/json' },
+                });
+                if (!response.ok) {
+                    return;
+                }
+                const next = (await response.json()) as Operation;
+                setOperation(next);
+                if (['succeeded', 'failed'].includes(next.status)) {
+                    window.clearInterval(timer);
+                    if (reloadOnFinish) router.reload();
+                }
+            } catch {
+                // Keep polling after a temporary network interruption.
             }
         }, 3000);
 
         return () => window.clearInterval(timer);
-    }, [operationId, operationStatus]);
+    }, [operationId, operationStatus, reloadOnFinish]);
 
     return { operation, setOperation };
 }
