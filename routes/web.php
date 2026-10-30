@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ApiWallpaperController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ManualWallpaperController;
 use App\Http\Controllers\NotionSyncController;
@@ -22,6 +23,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('notion-syncs', [NotionSyncController::class, 'store'])->name('notion-syncs.store');
 
     Route::get('wallpapers/create', [WallpaperController::class, 'create'])->name('wallpapers.create');
+    Route::post('wallpapers/generate', [ApiWallpaperController::class, 'store'])->name('wallpapers.generate');
     Route::get('wallpapers/proposals/manual-prompt', [ManualWallpaperController::class, 'proposalPrompt'])
         ->name('wallpapers.proposals.manual-prompt');
     Route::post('wallpapers/proposals/manual-result', [ManualWallpaperController::class, 'storeProposal'])
@@ -39,6 +41,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('wallpapers/{wallpaper}/restore-image', [WallpaperController::class, 'restoreImage'])->name('wallpapers.image.restore');
     Route::get('wallpapers/{wallpaper}/preview', [WallpaperController::class, 'preview'])->name('wallpapers.preview');
     Route::get('wallpapers/{wallpaper}/download', [WallpaperController::class, 'download'])->name('wallpapers.download');
+    Route::get('wallpapers/{wallpaper}/composition-download', [WallpaperController::class, 'downloadComposition'])->name('wallpapers.composition.download');
     Route::delete('wallpapers/{wallpaper}/image', [WallpaperController::class, 'destroyImage'])->name('wallpapers.image.destroy');
     Route::delete('wallpapers/{wallpaper}', [WallpaperController::class, 'destroy'])->name('wallpapers.destroy');
 

@@ -4,12 +4,15 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\ExternalApiException;
 use App\Http\Requests\WallpaperFilterRequest;
+use App\Models\ApiRun;
 use App\Models\Wallpaper;
 use App\Services\ImageService;
 use App\Services\KigakuPolicy;
 use App\Services\NotionClient;
+use App\Services\OpenAiClient;
 use App\Services\WallpaperDeletionService;
 use App\Services\WallpaperImageRestoreService;
+use App\Services\WallpaperPromptService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -24,15 +27,35 @@ use Throwable;
 
 class WallpaperController extends Controller
 {
-    public function create(Request $request): Response
+    public function create(Request $request, OpenAiClient $openai, WallpaperPromptService $prompts): Response
     {
+        $request->validate(['date' => ['sometimes', 'date_format:Y-m-d']]);
         $defaultDate = CarbonImmutable::now(config('lucky.timezone'))->addDay()->toDateString();
         $selectedDate = $request->string('date')->toString() ?: $defaultDate;
+        $existing = Wallpaper::query()->where('target_date', $selectedDate)->first();
+        $generation = $existing === null ? ApiRun::query()->where('type', ApiRun::WALLPAPER_GENERATION)
+            ->where('input_hash', $prompts->composition($selectedDate, jsonOnly: true)['input_hash'])
+            ->latest()->orderByDesc('id')->first() : null;
 
         return Inertia::render('wallpapers/create', [
             'defaultDate' => $defaultDate,
             'selectedDate' => $selectedDate,
-            'existing' => Wallpaper::query()->where('target_date', $selectedDate)->first(),
+            'existing' => $existing,
+            'apiConfigured' => $openai->isConfigured(),
+            'apiGeneration' => $generation?->operation(),
+        ]);
+    }
+
+    public function downloadComposition(Wallpaper $wallpaper): StreamedResponse
+    {
+        $kigaku = $wallpaper->kigaku();
+        abort_unless(($kigaku['policy_version'] ?? null) === KigakuPolicy::VERSION, 404);
+        $json = json_encode([
+            ...$wallpaper->only(KigakuPolicy::COMPOSITION_FIELDS), 'kigaku' => $kigaku,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
+
+        return response()->streamDownload(fn () => print ($json), 'wallpaper-composition-'.$wallpaper->target_date->format('Y-m-d').'.json', [
+            'Content-Type' => 'application/json; charset=UTF-8',
         ]);
     }
 

@@ -16,6 +16,8 @@ class ApiRun extends Model
 {
     use HasUuids;
 
+    public const WALLPAPER_GENERATION = 'wallpaper_generation';
+
     protected $guarded = [];
 
     public $incrementing = false;
@@ -28,6 +30,14 @@ class ApiRun extends Model
             'retryable' => 'boolean',
             'started_at' => 'datetime',
             'finished_at' => 'datetime',
+        ];
+    }
+
+    public function operation(): array
+    {
+        return [
+            ...$this->only(['id', 'type', 'status', 'error_code', 'retryable']),
+            'wallpaper_id' => $this->subject_type === (new Wallpaper)->getMorphClass() ? $this->subject_id : null,
         ];
     }
 

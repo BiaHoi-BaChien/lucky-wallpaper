@@ -3,6 +3,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Operation } from '@/hooks/use-operation';
 import AppLayout from '@/layouts/app-layout';
 import { wallpaperStateLabel } from '@/lib/wallpaper-state';
 import { Head, Link, useForm } from '@inertiajs/react';
@@ -13,10 +14,14 @@ export default function CreateWallpaper({
     defaultDate,
     selectedDate,
     existing,
+    apiConfigured,
+    apiGeneration,
 }: {
     defaultDate: string;
     selectedDate: string;
     existing: { id: number; title: string | null; state: string } | null;
+    apiConfigured: boolean;
+    apiGeneration: Operation | null;
 }) {
     const targetDate = selectedDate || defaultDate;
     const dateForm = useForm({ date: targetDate });
@@ -63,7 +68,7 @@ export default function CreateWallpaper({
                         </AlertDescription>
                     </Alert>
                 ) : (
-                    <ManualWallpaperForm key={targetDate} targetDate={targetDate} />
+                    <ManualWallpaperForm key={targetDate} targetDate={targetDate} apiConfigured={apiConfigured} apiGeneration={apiGeneration} />
                 )}
             </div>
         </AppLayout>

@@ -3,6 +3,11 @@
 return [
     'timezone' => env('LUCKY_TIMEZONE', 'Asia/Ho_Chi_Minh'),
     'setup_key' => env('APP_SETUP_KEY'),
+    'openai' => [
+        'api_key' => env('OPENAI_API_KEY'),
+        'text_model' => env('OPENAI_TEXT_MODEL', 'gpt-5-mini'),
+        'image_model' => env('OPENAI_IMAGE_MODEL', 'gpt-image-2.5-flare'),
+    ],
     'notion' => [
         'token' => env('NOTION_TOKEN'),
         'data_source_id' => env('NOTION_DATA_SOURCE_ID', '3a584dd4-00e3-807d-8e33-000b9c6561cb'),
