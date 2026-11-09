@@ -71,6 +71,8 @@ class ManualWallpaperWorkflowTest extends TestCase
             $this->app->instance(KigakuCalendar::class, $calendar);
         }
         $payload = Fixtures::currentPayload();
+        $payload['art_style'] = '木版画。平面的な色面と木目を生かした輪郭。';
+        $payload['conclusion'] = $payload['title'].' × '.$payload['art_style'];
         $response = $this->post('/wallpapers/proposals/manual-result', $this->submission($payload));
         $wallpaper = Wallpaper::query()->sole();
         $response->assertRedirect('/wallpapers/'.$wallpaper->id)->assertSessionHasNoErrors();
@@ -79,9 +81,11 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertNull($wallpaper->composition_zone);
         $this->assertNull($wallpaper->chosenProposal->analysis_hash);
         $this->assertSame($status, $wallpaper->kigaku()['status']);
+        $this->assertSame($payload['art_style'], $wallpaper->art_style);
         $this->assertSame(KigakuPolicy::VERSION, $wallpaper->chosenProposal->calendar_context['policy_version']);
         $this->assertStringContainsString('主役中心:', $wallpaper->compositionDetails());
         $imagePrompt = app(WallpaperPromptService::class)->image($wallpaper)['prompt'];
+        $this->assertStringContainsString('画風: '.$payload['art_style'], $imagePrompt);
         $this->assertStringContainsString('左から'.$payload['kigaku']['subject_position']['x_percent'].'%', $imagePrompt);
         $this->assertStringContainsString('上部30%', $imagePrompt);
         Storage::disk('local')->assertExists($wallpaper->image_path);
