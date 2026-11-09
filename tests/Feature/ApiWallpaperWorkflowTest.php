@@ -84,6 +84,8 @@ class ApiWallpaperWorkflowTest extends TestCase
     public function test_job_saves_valid_json_and_image_together_and_both_downloads_are_available(): void
     {
         $payload = Fixtures::currentPayload();
+        $payload['art_style'] = '切り絵と水彩の混合技法。紙の重なりと透明なにじみ。';
+        $payload['conclusion'] = $payload['title'].' × '.$payload['art_style'];
         $this->fakeApi($payload);
         $run = $this->start();
         $this->handle($run);
@@ -91,6 +93,7 @@ class ApiWallpaperWorkflowTest extends TestCase
         $this->assertSame('succeeded', $run->refresh()->status);
         $this->assertSame($payload['kigaku'], $wallpaper->kigaku());
         $this->assertSame($payload['title'], $wallpaper->title);
+        $this->assertSame($payload['art_style'], $wallpaper->art_style);
         $this->assertSame('approved', $wallpaper->chosenProposal->status);
         $size = getimagesizefromstring(Storage::disk('local')->get($wallpaper->image_path));
         $this->assertSame([1440, 2560], [$size[0], $size[1]]);
@@ -105,6 +108,7 @@ class ApiWallpaperWorkflowTest extends TestCase
             && str_contains($request['input'], 'JSONオブジェクトのみ') && ! str_contains($request['input'], '必須の納品手順'));
         Http::assertSent(fn (Request $request) => $request->url() === 'https://api.openai.com/v1/images/generations'
             && $request['size'] === '1440x2560' && $request['n'] === 1
+            && str_contains($request['prompt'], '画風: '.$payload['art_style'])
             && str_contains($request['prompt'], $payload['composition']) && ! str_contains($request['prompt'], 'ダウンロード'));
         $this->handle($run);
         (new GenerateWallpaper($run->id, '2026-10-22'))->failed(null);
