@@ -63,6 +63,27 @@ class ApiWallpaperWorkflowTest extends TestCase
         Http::assertNothingSent();
     }
 
+    #[DataProvider('activeStatuses')]
+    public function test_art_style_history_updates_preserve_active_generation_and_prevent_duplicate_runs(string $status): void
+    {
+        $run = $this->start();
+        $run->update(['status' => $status]);
+        Wallpaper::factory()->create(['target_date' => '2026-10-21', 'art_style' => '木版画']);
+
+        $this->get('/wallpapers/create?date=2026-10-22')->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('apiGeneration.id', $run->id)->where('apiGeneration.status', $status));
+        $this->post('/wallpapers/generate', ['target_date' => '2026-10-22'])
+            ->assertSessionHasNoErrors()->assertRedirect('/wallpapers/create?date=2026-10-22');
+        $this->assertDatabaseCount('api_runs', 1);
+        Queue::assertPushed(GenerateWallpaper::class, 1);
+        Http::assertNothingSent();
+    }
+
+    public static function activeStatuses(): array
+    {
+        return [['queued'], ['running']];
+    }
+
     public function test_existing_wallpaper_is_rejected_without_dispatching_paid_work(): void
     {
         Wallpaper::factory()->create(['target_date' => '2026-10-22']);
@@ -83,13 +104,14 @@ class ApiWallpaperWorkflowTest extends TestCase
 
     public function test_job_saves_valid_json_and_image_together_and_both_downloads_are_available(): void
     {
+        Wallpaper::factory()->create(['target_date' => '2026-10-21', 'art_style' => '木版画。木目の輪郭。']);
         $payload = Fixtures::currentPayload();
         $payload['art_style'] = '切り絵と水彩の混合技法。紙の重なりと透明なにじみ。';
         $payload['conclusion'] = $payload['title'].' × '.$payload['art_style'];
         $this->fakeApi($payload);
         $run = $this->start();
         $this->handle($run);
-        $wallpaper = Wallpaper::query()->sole();
+        $wallpaper = Wallpaper::query()->where('target_date', '2026-10-22')->sole();
         $this->assertSame('succeeded', $run->refresh()->status);
         $this->assertSame($payload['kigaku'], $wallpaper->kigaku());
         $this->assertSame($payload['title'], $wallpaper->title);
@@ -105,7 +127,8 @@ class ApiWallpaperWorkflowTest extends TestCase
         Http::assertSent(fn (Request $request) => $request->url() === 'https://api.openai.com/v1/responses'
             && $request['store'] === false && $request['text']['format']['strict'] === true
             && ! isset($request['text']['format']['schema']['properties']['kigaku']['properties']['candidate_directions']['uniqueItems'])
-            && str_contains($request['input'], 'JSONオブジェクトのみ') && ! str_contains($request['input'], '必須の納品手順'));
+            && str_contains($request['input'], 'JSONオブジェクトのみ') && ! str_contains($request['input'], '必須の納品手順')
+            && str_contains($request['input'], 'recent_art_styles') && str_contains($request['input'], '木版画。木目の輪郭。'));
         Http::assertSent(fn (Request $request) => $request->url() === 'https://api.openai.com/v1/images/generations'
             && $request['size'] === '1440x2560' && $request['n'] === 1
             && str_contains($request['prompt'], '画風: '.$payload['art_style'])
@@ -220,6 +243,29 @@ class ApiWallpaperWorkflowTest extends TestCase
         $this->assertSame([], Storage::disk('local')->allFiles());
     }
 
+    public function test_art_style_history_updates_during_image_generation_do_not_discard_the_image(): void
+    {
+        $payload = Fixtures::currentPayload();
+        $image = base64_encode(UploadedFile::fake()->image('wallpaper.jpg')->get());
+        Http::fake(function (Request $request) use ($payload, $image) {
+            if (str_ends_with($request->url(), '/responses')) {
+                return Http::response($this->compositionResponse($payload));
+            }
+            Wallpaper::factory()->create(['target_date' => '2026-10-21', 'art_style' => '木版画']);
+
+            return Http::response(['data' => [['b64_json' => $image]]]);
+        });
+        $run = $this->start();
+        $this->handle($run);
+
+        $this->assertSame('succeeded', $run->refresh()->status);
+        $wallpaper = Wallpaper::query()->where('target_date', '2026-10-22')->sole();
+        $this->assertSame($payload['art_style'], $wallpaper->art_style);
+        $this->assertDatabaseCount('composition_proposals', 1);
+        Storage::disk('local')->assertExists($wallpaper->image_path);
+        Http::assertSentCount(2);
+    }
+
     public function test_save_failure_rolls_back_the_wallpaper_and_removes_the_normalized_image(): void
     {
         $this->fakeApi(Fixtures::currentPayload());
@@ -229,6 +275,20 @@ class ApiWallpaperWorkflowTest extends TestCase
         $this->handle($run, $prompts);
         $this->assertSame('failed', $run->refresh()->status);
         $this->assertNothingWasSaved();
+    }
+
+    public function test_art_style_history_updates_before_execution_are_used_by_the_job(): void
+    {
+        $this->fakeApi(Fixtures::currentPayload());
+        $run = $this->start();
+        Wallpaper::factory()->create(['target_date' => '2026-10-21', 'art_style' => '木版画']);
+        $this->handle($run);
+
+        $this->assertSame('succeeded', $run->refresh()->status);
+        $this->assertDatabaseCount('wallpapers', 2);
+        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/responses')
+            && str_contains($request['input'], '"art_style": "木版画"'));
+        Http::assertSentCount(2);
     }
 
     public function test_stale_queued_input_stops_before_any_api_request(): void
