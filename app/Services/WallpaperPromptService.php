@@ -22,6 +22,10 @@ class WallpaperPromptService
             'direction_labels' => KigakuPolicy::DIRECTIONS,
             'fixed_kigaku' => $judgement,
             'star_motif' => KigakuPolicy::MOTIFS[$judgement['direction_star'] ?? 6],
+            'recent_art_styles' => Wallpaper::query()->where('target_date', '<', $targetDate)
+                ->whereRaw("TRIM(art_style) <> ''")
+                ->orderByDesc('target_date')->limit(14)
+                ->get(['target_date', 'art_style'])->toArray(),
         ];
         if ($wallpaper !== null) {
             $input['previous_same_day_proposals'] = $wallpaper->proposals()->orderBy('sequence')
@@ -71,7 +75,10 @@ DELIVERY;
 - titleとart_styleは各255文字以内、conclusionは「構図名 × 画風」の1行にしてください。
 
 画風と表現:
+- recent_art_stylesは対象日より前の登録済み壁紙のうち、画風がある直近14件（日付の新しい順）です。画風の重複を避けるためだけに使用し、当選実績や吉方位の判定には使わないでください。
+- 最近使われていない画風・技法を最優先で選び、recent_art_stylesとprevious_same_day_proposalsにある画風・技法の繰り返しを避けてください。画風名の言い換えや色・光・質感だけの変更は別の画風とみなしません。候補がいずれも使用済みの場合は、最後の使用日が古い画風を優先してください。
 - AIで表現できる多様な画風・技法を積極的に活用してください。写真、水彩、油彩、日本画、水墨画、木版画、パステル、鉛筆画、切り絵、コラージュ、ピクセルアート、ベクターアート、3DCG、抽象表現、シュルレアリスムなどから、今回のモチーフを魅力的に表現する画風を自由に選んでください。例示に限定せず、複数の技法の組み合わせも使えます。
+- モチーフが自然物であることや表現の無難さだけを理由に、写真・水彩などの慣れた画風へ戻さないでください。履歴が空の場合も、例示の並び順に偏らず大胆な技法やデフォルメを積極的に検討してください。
 - 自然素材・銀白・自然光は題材や色彩・光の指針です。主役のモチーフ・固定位置・余白を保ちながら、形の省略やデフォルメ、筆致、輪郭、紙や絵具の質感などを選んだ画風に合わせて自由に表現してください。
 - art_styleには技法名と描き分けに必要な特徴を具体的に記載し、overview・composition・color_wu_xingと画像全体で一貫させてください。
 
@@ -88,7 +95,9 @@ JSON Schema:
 入力データ:
 {$prettyInput}
 PROMPT;
-        $inputHash = hash('sha256', $version.'|'.$prettyInput);
+        // Keep run identity and save checks independent of changing style history.
+        unset($input['recent_art_styles']);
+        $inputHash = hash('sha256', $version.'|'.json_encode($input, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
 
         return [
             'prompt' => $prompt,

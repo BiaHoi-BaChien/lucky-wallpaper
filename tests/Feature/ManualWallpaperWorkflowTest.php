@@ -37,23 +37,48 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->actingAs(User::factory()->create());
     }
 
-    public function test_prompt_uses_only_date_star_timezone_and_needs_no_analysis(): void
+    public function test_prompt_uses_fixed_kigaku_and_art_styles_without_analysis(): void
     {
-        Wallpaper::factory()->create(['title' => '過去の秘密の構図', 'prize_vnd' => 12345]);
+        Wallpaper::factory()->create(['target_date' => '2026-10-21', 'title' => '過去の秘密の構図', 'prize_vnd' => 12345]);
         $prompt = $this->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-10-22')->assertOk()->json();
         foreach (['六白金星', '2026-10-22', 'Asia/Ho_Chi_Minh', 'candidate_directions', 'undetermined', '1440×2560', 'プレビュー', 'ダウンロード', '実際に使用',
             '日盤＞月盤＞年盤', 'fixed_kigaku', 'subject_position', 'direction_star',
             '北→北東→東→南東→南→南西→西→北西', '月命星は使わず', '上部30%',
-            '画面上＝北、右＝東', 'star_motif', '南でも下降', '人工的な金色発光'] as $text) {
+            '画面上＝北、右＝東', 'star_motif', '南でも下降', '人工的な金色発光', 'recent_art_styles',
+            '最近使われていない画風・技法を最優先', '言い換え', '最後の使用日が古い'] as $text) {
             $this->assertStringContainsString($text, $prompt['prompt']);
         }
-        foreach (['過去の秘密の構図', '12345', 'historical_analysis_markdown', 'top_winners', 'recent_art_styles', 'feng_shui', 'composition_zone', '"references"', '判定方式はあなたが選び'] as $text) {
+        foreach (['過去の秘密の構図', '12345', 'historical_analysis_markdown', 'top_winners', 'feng_shui', 'composition_zone', '"references"', '判定方式はあなたが選び'] as $text) {
             $this->assertStringNotContainsString($text, $prompt['prompt']);
         }
         $this->assertStringContainsString('参照資料の一覧や出典名・出典URLは回答・JSONに含めないでください。referencesフィールドも出力しないでください。', $prompt['prompt']);
         $this->assertSame('wallpaper-creation-2026-10-22.txt', $prompt['filename']);
         Http::assertNothingSent();
         Queue::assertNothingPushed();
+    }
+
+    public function test_manual_and_api_prompts_use_the_latest_fourteen_non_empty_prior_art_styles(): void
+    {
+        $history = [];
+        foreach (range(1, 16) as $day) {
+            $attributes = [
+                'target_date' => sprintf('2026-09-%02d', $day),
+                'art_style' => $day % 2 === 0 ? '水彩。淡いにじみ。' : '木版画。木目の輪郭。',
+            ];
+            Wallpaper::factory()->create($attributes);
+            $history[] = $attributes;
+        }
+        foreach ([null, '', '   '] as $index => $style) {
+            Wallpaper::factory()->create(['target_date' => '2026-10-'.(19 + $index), 'art_style' => $style]);
+        }
+        Wallpaper::factory()->create(['target_date' => '2026-10-23', 'art_style' => '未来の画風']);
+        $manual = $this->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-10-22')->assertOk()->json();
+        $api = app(WallpaperPromptService::class)->composition('2026-10-22', jsonOnly: true);
+
+        foreach ([$manual, $api] as $prepared) {
+            $input = json_decode(explode('入力データ:', $prepared['prompt'], 2)[1], true, flags: JSON_THROW_ON_ERROR);
+            $this->assertSame(array_reverse(array_slice($history, -14)), $input['recent_art_styles']);
+        }
     }
 
     #[DataProvider('statuses')]
@@ -250,12 +275,32 @@ class ManualWallpaperWorkflowTest extends TestCase
         $this->assertSame($before, app(WallpaperPromptService::class)->composition('2026-10-22'));
     }
 
+    public function test_art_style_updates_make_a_manual_creation_prompt_stale(): void
+    {
+        $old = Wallpaper::factory()->create(['target_date' => '2026-10-21']);
+        $prompt = $this->getJson('/wallpapers/proposals/manual-prompt?target_date=2026-10-22')->assertOk()->json();
+        $old->update(['art_style' => '木版画']);
+        $updated = app(WallpaperPromptService::class)->composition('2026-10-22');
+        $this->assertSame($prompt['context_hash'], $updated['context_hash']);
+        $this->assertNotSame($prompt['prompt_hash'], $updated['prompt_hash']);
+        $data = $this->submission(Fixtures::currentPayload());
+        $data['prompt_hash'] = $prompt['prompt_hash'];
+
+        $this->post('/wallpapers/proposals/manual-result', $data)->assertSessionHasErrors('proposal_json');
+        $this->assertDatabaseCount('wallpapers', 1);
+        $this->assertDatabaseCount('composition_proposals', 0);
+        $this->assertSame([], Storage::disk('local')->allFiles());
+    }
+
     public function test_reproposal_registers_image_and_preserves_result_and_previous_proposal(): void
     {
         $wallpaper = Fixtures::wallpaper('2026-10-22', attributes: ['prize_vnd' => 700, 'purchase_count' => 2]);
         $previous = $wallpaper->chosen_proposal_id;
         $prompt = $this->getJson('/wallpapers/'.$wallpaper->id.'/proposals/manual-prompt')->assertOk()->json();
         $this->assertStringContainsString('日盤＞月盤＞年盤の優先方式', $prompt['prompt']);
+        $input = json_decode(explode('入力データ:', $prompt['prompt'], 2)[1], true, flags: JSON_THROW_ON_ERROR);
+        $this->assertSame([], $input['recent_art_styles']);
+        $this->assertSame($wallpaper->art_style, $input['previous_same_day_proposals'][0]['art_style']);
         $payload = Fixtures::currentPayload();
         $payload['title'] = '再作成した山の稜線';
         $this->post('/wallpapers/'.$wallpaper->id.'/proposals/manual-result', [
