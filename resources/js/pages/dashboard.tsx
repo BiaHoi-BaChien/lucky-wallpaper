@@ -4,6 +4,7 @@ import AppLayout from '@/layouts/app-layout';
 import { type DirectionStats } from '@/lib/direction-wave';
 import { Head, Link } from '@inertiajs/react';
 import { ArrowRight, ClipboardPen, ImagePlus } from 'lucide-react';
+import { type ReactNode } from 'react';
 
 export default function Dashboard({
     latestWallpaperDate,
@@ -14,6 +15,10 @@ export default function Dashboard({
     stats: { wallpapers: number; result_count: number; total_prize_vnd: number };
     directionStats: DirectionStats[];
 }) {
+    const highestPrizeTotal = highestPrize(directionStats.map((row) => (row.result_count > 0 ? row.prize_total : null)));
+    const highestAveragePrize = highestPrize(directionStats.map((row) => row.average_prize));
+    const highestPrizePerTicket = highestPrize(directionStats.map((row) => row.prize_per_ticket));
+
     return (
         <AppLayout breadcrumbs={[{ title: 'ダッシュボード', href: route('dashboard') }]}>
             <Head title="吉方位別の実績" />
@@ -66,15 +71,16 @@ export default function Dashboard({
                                     </th>
                                     <Cell label="壁紙" value={row.wallpapers.toLocaleString() + '件'} />
                                     <Cell label="実績登録" value={row.result_count.toLocaleString() + '件'} />
-                                    <Cell label="賞金合計" value={formatVnd(row.prize_total)} />
-                                    <Cell label="1日平均" value={formatVnd(row.average_prize)} />
-                                    <td className="grid grid-cols-[8rem_minmax(0,1fr)] gap-2 lg:table-cell lg:p-3">
-                                        <span className="text-muted-foreground lg:hidden">1口あたり賞金</span>
-                                        <span>
-                                            {formatVnd(row.prize_per_ticket)}
-                                            <span className="text-muted-foreground block text-xs">口数登録済み {row.ticket_result_count}件</span>
-                                        </span>
-                                    </td>
+                                    <Cell
+                                        label="賞金合計"
+                                        value={<PrizeValue value={row.prize_total} highest={row.result_count > 0 ? highestPrizeTotal : null} />}
+                                    />
+                                    <Cell label="1日平均" value={<PrizeValue value={row.average_prize} highest={highestAveragePrize} />} />
+                                    <Cell
+                                        label="1口あたり賞金"
+                                        value={<PrizeValue value={row.prize_per_ticket} highest={highestPrizePerTicket} />}
+                                        detail={`口数登録済み ${row.ticket_result_count}件`}
+                                    />
                                     <td className="block lg:table-cell lg:p-3">
                                         <Link
                                             className="text-primary inline-flex items-center gap-1 underline underline-offset-4"
@@ -106,13 +112,37 @@ function Stat({ title, value }: { title: string; value: string }) {
         </div>
     );
 }
-function Cell({ label, value }: { label: string; value: string }) {
+function Cell({ label, value, detail }: { label: string; value: ReactNode; detail?: string }) {
     return (
         <td className="grid grid-cols-[8rem_minmax(0,1fr)] gap-2 lg:table-cell lg:p-3">
             <span className="text-muted-foreground lg:hidden">{label}</span>
-            <span>{value}</span>
+            <span>
+                {value}
+                {detail && <span className="text-muted-foreground block text-xs">{detail}</span>}
+            </span>
         </td>
     );
+}
+function PrizeValue({ value, highest }: { value: number | null; highest: number | null }) {
+    if (value === null || value !== highest) {
+        return formatVnd(value);
+    }
+
+    return (
+        <strong className="bg-accent text-accent-foreground inline-flex max-w-full flex-wrap items-baseline gap-x-1.5 rounded-md px-2 py-0.5 font-semibold">
+            <span>{formatVnd(value)}</span>
+            <span className="bg-primary text-primary-foreground rounded-sm px-1.5 text-xs">1位</span>
+        </strong>
+    );
+}
+function highestPrize(values: (number | null)[]) {
+    return values.reduce<number | null>((highest, value) => {
+        if (value === null) {
+            return highest;
+        }
+
+        return highest === null ? value : Math.max(highest, value);
+    }, null);
 }
 function formatVnd(value: number | null) {
     return value === null ? '—' : value.toLocaleString() + ' VND';

@@ -23,8 +23,12 @@ jobs:
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.5.13'
+        # setup-php reads the PHP version from composer.lock.
+        env:
+          update: 'true'
+
+      - name: Check PHP platform requirements
+        run: composer check-platform-reqs --lock
 
       - name: Install Dependencies
         run: |
