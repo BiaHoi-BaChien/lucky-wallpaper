@@ -48,10 +48,16 @@ jobs:
       - name: Setup PHP
         if: steps.freshness.outputs.deploy == 'true'
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        # setup-php reads the PHP version from composer.lock.
         with:
-          php-version: '8.5.13'
           tools: composer:v2
           coverage: none
+        env:
+          update: 'true'
+
+      - name: Check PHP platform requirements
+        if: steps.freshness.outputs.deploy == 'true'
+        run: composer check-platform-reqs --lock --no-dev
 
       - name: Setup Node
         if: steps.freshness.outputs.deploy == 'true'
